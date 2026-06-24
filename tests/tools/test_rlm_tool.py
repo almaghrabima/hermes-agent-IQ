@@ -36,3 +36,53 @@ def test_pip_install_editable_wraps_internal(monkeypatch):
     monkeypatch.setattr(lazy_deps, "_venv_pip_install", lambda specs, **kw: calls.append(specs) or _R())
     assert lazy_deps.pip_install_editable("/some/checkout") is True
     assert calls == [("-e /some/checkout",)]
+
+
+def test_load_rlm_config_merges_defaults(monkeypatch):
+    monkeypatch.setattr(
+        rlm_tool, "load_config_readonly", lambda: {"rlm": {"max_global_calls": 7}}
+    )
+    cfg = rlm_tool._load_rlm_config()
+    assert cfg["max_global_calls"] == 7          # user override
+    assert cfg["allow_remote_backends"] is False  # default preserved
+    assert cfg["timeout_seconds"] == 600          # default preserved
+
+
+def test_resolve_credentials_uses_active_provider(monkeypatch):
+    class FakeClient:
+        base_url = "https://openrouter.ai/api/v1"
+        api_key = "sk-test-123"
+
+    monkeypatch.setattr(rlm_tool, "_resolve_api_key_provider", lambda: (FakeClient(), "auxmodel"))
+    monkeypatch.setattr(rlm_tool, "load_config_readonly", lambda: {"model": "z-ai/glm-5"})
+
+    creds = rlm_tool._resolve_rlm_credentials({"primary_agent": None, "sub_agent": None})
+    assert creds.base_url == "https://openrouter.ai/api/v1"
+    assert creds.api_key == "sk-test-123"
+    assert creds.primary_agent == "z-ai/glm-5"   # active model, not aux model
+    assert creds.sub_agent == "z-ai/glm-5"        # defaults to primary
+
+
+def test_resolve_credentials_honors_overrides(monkeypatch):
+    class FakeClient:
+        base_url = "https://x/v1"
+        api_key = "k"
+
+    monkeypatch.setattr(rlm_tool, "_resolve_api_key_provider", lambda: (FakeClient(), "aux"))
+    monkeypatch.setattr(rlm_tool, "load_config_readonly", lambda: {"model": "active"})
+
+    creds = rlm_tool._resolve_rlm_credentials({"primary_agent": "p", "sub_agent": "s"})
+    assert creds.primary_agent == "p"
+    assert creds.sub_agent == "s"
+
+
+def test_resolve_credentials_raises_without_key(monkeypatch):
+    monkeypatch.setattr(rlm_tool, "_resolve_api_key_provider", lambda: (None, None))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(rlm_tool, "load_config_readonly", lambda: {"model": "m"})
+    try:
+        rlm_tool._resolve_rlm_credentials({"primary_agent": None, "sub_agent": None})
+        assert False, "expected RlmError"
+    except rlm_tool.RlmError:
+        pass
