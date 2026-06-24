@@ -541,6 +541,16 @@ def ensure(feature: str, *, prompt: bool = True) -> None:
     logger.info("Lazy install complete for feature %r", feature)
 
 
+def pip_install_editable(path: str) -> bool:
+    """Install a local checkout in editable mode into the active venv.
+
+    Public wrapper around the internal installer so callers (e.g. the rlm
+    tool's availability gate) don't reach into a private symbol. Returns
+    True on success.
+    """
+    return _venv_pip_install((f"-e {path}",)).success
+
+
 def is_available(feature: str) -> bool:
     """Return True if the feature's deps are already satisfied."""
     if feature not in LAZY_DEPS:

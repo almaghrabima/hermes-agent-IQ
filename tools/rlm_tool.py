@@ -44,10 +44,9 @@ def _fast_rlm_available() -> bool:
 
         if os.path.isdir(engine_path):
             try:
-                from tools.lazy_deps import _venv_pip_install
+                from tools.lazy_deps import pip_install_editable
 
-                result = _venv_pip_install((f"-e {engine_path}",))
-                if result.success and importlib.util.find_spec("fast_rlm") is not None:
+                if pip_install_editable(engine_path) and importlib.util.find_spec("fast_rlm") is not None:
                     return True
             except Exception as exc:
                 logger.debug("editable fast-rlm install from %s failed: %s", engine_path, exc)
