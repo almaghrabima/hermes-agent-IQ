@@ -1,0 +1,23 @@
+{
+  "name": "tui_log_viewer",
+  "module": "src/index.tsx",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.tsx",
+    "start": "bun run src/index.tsx",
+    "view": "bun run src/index.tsx"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.1.79",
+    "@opentui/react": "^0.1.79",
+    "react": "^19.2.4"
+  }
+}

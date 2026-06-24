@@ -137,6 +137,3 @@ RELEASE_v*.md
 # Desktop demo-run scratch output (hermes writes demo/*.txt during recorded
 # walkthroughs). Throwaway artifacts, never part of the app.
 apps/desktop/demo/
-
-# Local editable working copy of fast-rlm (vendored for development; install with `pip install -e third_party/fast-rlm`)
-third_party/fast-rlm/

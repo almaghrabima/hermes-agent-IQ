@@ -1,0 +1,22 @@
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if [ -z "$1" ]; then
+  echo "Usage: ./viewlog <logfile>"
+  echo ""
+  echo "Recent logs:"
+  ls -1t "$SCRIPT_DIR/logs/"*.jsonl 2>/dev/null | head -10 | while read f; do
+    echo "  $(basename "$f")"
+  done
+  exit 1
+fi
+
+# If just a filename (no path), look in logs/
+if [ ! -f "$1" ] && [ -f "$SCRIPT_DIR/logs/$1" ]; then
+  LOGFILE="$SCRIPT_DIR/logs/$1"
+else
+  # Resolve to absolute path before we cd
+  LOGFILE="$(cd "$(dirname "$1")" 2>/dev/null && pwd)/$(basename "$1")"
+fi
+
+cd "$SCRIPT_DIR/tui_log_viewer" && bun run src/index.tsx "$LOGFILE"
