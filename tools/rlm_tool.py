@@ -8,10 +8,18 @@ docs/superpowers/specs/2026-06-24-hermes-fast-rlm-tool-design.md.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import shlex
 import shutil
 from dataclasses import dataclass
+
+from tools.code_execution_tool import (
+    _env_temp_dir,
+    _get_or_create_env,
+    _ship_file_to_remote,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -174,3 +182,58 @@ def _build_rlm_cfg(query, creds: RlmCreds, rlm_cfg: dict, context_path, input_pa
         "max_money_spent": rlm_cfg.get("max_money_spent"),
         "max_completion_tokens": rlm_cfg.get("max_completion_tokens"),
     }
+
+
+_DRIVER_LOCAL_PATH = os.path.join(os.path.dirname(__file__), "rlm", "_driver.py")
+
+
+def _run_rlm_in_env(env, env_type, task_id, cfg, creds: RlmCreds, context_text, timeout) -> dict:
+    """Stage the driver + cfg (+ inline context) and run fast-rlm in *env*.
+
+    The LLM key is written to a chmod-600 ``.env.sh`` that the run command
+    sources and then removes — never on argv, never in cfg.json.
+    """
+    base = _env_temp_dir(env).rstrip("/")
+    sandbox = f"{base}/hermes_rlm_{task_id}"
+    env.execute(f"mkdir -p {shlex.quote(sandbox)}", cwd="/", timeout=30)
+
+    driver_remote = f"{sandbox}/_driver.py"
+    cfg_remote = f"{sandbox}/cfg.json"
+    envfile_remote = f"{sandbox}/.env.sh"
+
+    # 1) driver
+    with open(_DRIVER_LOCAL_PATH, encoding="utf-8") as fh:
+        _ship_file_to_remote(env, driver_remote, fh.read())
+
+    # 2) inline context (if any) -> file; thread its path into cfg
+    if context_text is not None:
+        ctx_remote = f"{sandbox}/context.txt"
+        _ship_file_to_remote(env, ctx_remote, context_text)
+        cfg = {**cfg, "context_path": ctx_remote}
+
+    # 3) cfg.json (no secrets)
+    _ship_file_to_remote(env, cfg_remote, json.dumps(cfg, ensure_ascii=False))
+
+    # 4) secret env file (sourced then deleted)
+    env_lines = (
+        f"export RLM_MODEL_API_KEY={shlex.quote(creds.api_key)}\n"
+        f"export RLM_MODEL_BASE_URL={shlex.quote(creds.base_url)}\n"
+    )
+    _ship_file_to_remote(env, envfile_remote, env_lines)
+
+    q = shlex.quote
+    run_cmd = (
+        f"chmod 600 {q(envfile_remote)}; . {q(envfile_remote)}; "
+        f"python3 {q(driver_remote)} --config {q(cfg_remote)}; rc=$?; "
+        f"rm -f {q(envfile_remote)}; exit $rc"
+    )
+    result = env.execute(run_cmd, cwd=sandbox, timeout=timeout)
+    output = (result.get("output") or "").strip()
+    last_line = output.splitlines()[-1] if output else ""
+    try:
+        parsed = json.loads(last_line)
+    except (ValueError, IndexError):
+        raise RlmError(f"fast-rlm produced no parseable result. Tail: {output[-500:]}")
+    if "error" in parsed:
+        raise RlmError(parsed["error"])
+    return parsed

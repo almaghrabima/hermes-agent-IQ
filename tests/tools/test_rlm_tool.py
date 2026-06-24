@@ -116,3 +116,70 @@ def test_build_cfg_has_no_secrets():
     assert cfg["max_global_calls"] == 50
     assert "SECRET" not in json.dumps(cfg)
     assert "api_key" not in cfg and "base_url" not in cfg
+
+
+class _FakeEnv:
+    """Records shipped files and the executed command."""
+    def __init__(self):
+        self.shipped = {}
+        self.commands = []
+
+    def get_temp_dir(self):
+        return "/tmp"
+
+    def execute(self, command, cwd="", timeout=None, **kw):
+        self.commands.append(command)
+        # Simulate the driver's stdout for the run command.
+        if "_driver.py" in command:
+            return {"output": '{"result": "ok", "usage": {"calls": 2}, "log_path": "/tmp/r.jsonl"}\n',
+                    "returncode": 0}
+        return {"output": "", "returncode": 0}
+
+
+def _patch_staging(monkeypatch, env):
+    monkeypatch.setattr(rlm_tool, "_get_or_create_env", lambda task_id: (env, "local"))
+
+    def fake_ship(e, path, content):
+        e.shipped[path] = content
+
+    monkeypatch.setattr(rlm_tool, "_ship_file_to_remote", fake_ship)
+    monkeypatch.setattr(rlm_tool, "_env_temp_dir", lambda e: "/tmp")
+
+
+def test_run_in_env_stages_files_and_parses(monkeypatch):
+    env = _FakeEnv()
+    _patch_staging(monkeypatch, env)
+    creds = rlm_tool.RlmCreds(base_url="https://b/v1", api_key="SECRET", primary_agent="p", sub_agent="s")
+    cfg = {"query": "q", "primary_agent": "p", "sub_agent": "s", "context_path": None,
+           "input_path": None, "max_global_calls": 50, "max_money_spent": None,
+           "max_completion_tokens": None}
+
+    out = rlm_tool._run_rlm_in_env(env, "local", "task1", cfg, creds, context_text=None, timeout=600)
+
+    assert out["result"] == "ok"
+    assert out["usage"]["calls"] == 2
+    # driver + cfg staged
+    staged = "\n".join(env.shipped)
+    assert any(p.endswith("_driver.py") for p in env.shipped)
+    assert any(p.endswith("cfg.json") for p in env.shipped)
+    # secret is NOT in cfg.json content, but IS in the sourced env file
+    cfg_content = next(c for p, c in env.shipped.items() if p.endswith("cfg.json"))
+    assert "SECRET" not in cfg_content
+    env_file = next(c for p, c in env.shipped.items() if p.endswith(".env.sh"))
+    assert "RLM_MODEL_API_KEY=SECRET" in env_file
+    assert "RLM_MODEL_BASE_URL=https://b/v1" in env_file
+    # run command sources the env file and removes it
+    run_cmd = next(c for c in env.commands if "_driver.py" in c)
+    assert ".env.sh" in run_cmd and "rm -f" in run_cmd
+
+
+def test_run_in_env_ships_inline_context(monkeypatch):
+    env = _FakeEnv()
+    _patch_staging(monkeypatch, env)
+    creds = rlm_tool.RlmCreds(base_url="b", api_key="k", primary_agent="p", sub_agent="s")
+    cfg = {"query": "q", "primary_agent": "p", "sub_agent": "s", "context_path": "/tmp/PLACEHOLDER",
+           "input_path": None, "max_global_calls": 50, "max_money_spent": None, "max_completion_tokens": None}
+
+    rlm_tool._run_rlm_in_env(env, "local", "task1", cfg, creds, context_text="my big context", timeout=600)
+    ctx_files = [c for p, c in env.shipped.items() if "context" in p]
+    assert ctx_files and ctx_files[0] == "my big context"
