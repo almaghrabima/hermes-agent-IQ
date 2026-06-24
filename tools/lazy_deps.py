@@ -195,6 +195,8 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
         "mcp==1.26.0",
         "starlette==1.0.1",  # CVE-2026-48710 — keep in sync with pyproject [computer-use]
     ),
+    # Recursive Language Model runner
+    "tool.fast_rlm": ("fast-rlm==0.2.4",),
 }
 
 
