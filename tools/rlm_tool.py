@@ -86,7 +86,7 @@ def _resolve_rlm_credentials(rlm_cfg: dict) -> RlmCreds:
     try:
         client, _aux_model = _resolve_api_key_provider()
     except Exception as exc:
-        logger.debug("rlm: provider resolution failed: %s", exc)
+        logger.warning("rlm: provider resolution failed: %s", exc)
         client = None
     if client is not None:
         base_url = str(getattr(client, "base_url", "") or "").strip()

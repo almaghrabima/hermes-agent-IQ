@@ -22,7 +22,7 @@ def _fake_fast_rlm(tmp_path: Path) -> Path:
                 return {
                     "results": f"answer to: {instruction or query}",
                     "usage": {"calls": 1, "completion_tokens": 5},
-                    "log_path": "/tmp/rlm.jsonl",
+                    "log_file": "/tmp/rlm.jsonl",
                 }
             '''
         ),
@@ -81,3 +81,28 @@ def test_driver_reports_engine_error(tmp_path):
     assert proc.returncode == 1
     out = json.loads(proc.stdout.strip().splitlines()[-1])
     assert "budget exceeded" in out["error"]
+
+
+def test_driver_surfaces_engine_error_returned_without_raising(tmp_path):
+    pkgdir = tmp_path / "fakepkg"
+    (pkgdir / "fast_rlm").mkdir(parents=True)
+    (pkgdir / "fast_rlm" / "__init__.py").write_text(
+        "class RLMConfig:\n    def __init__(self, **kw):\n        pass\n"
+        "def run(query=None, instruction=None, input_file=None, config=None):\n"
+        "    return {'results': None, 'log_file': '/tmp/r.jsonl', 'usage': {}, 'error': 'engine boom'}\n",
+        encoding="utf-8",
+    )
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(json.dumps({
+        "query": "x", "primary_agent": "m", "sub_agent": "m",
+        "context_path": None, "input_path": None, "max_global_calls": 1,
+        "max_money_spent": None, "max_completion_tokens": None,
+    }), encoding="utf-8")
+    env = {"PYTHONPATH": str(pkgdir), "PATH": "/usr/bin:/bin"}
+    proc = subprocess.run(
+        [sys.executable, str(DRIVER), "--config", str(cfg)],
+        capture_output=True, text=True, env=env,
+    )
+    assert proc.returncode == 1
+    out = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert out["error"] == "engine boom"

@@ -63,6 +63,12 @@ rlm:
 For remote backends, ensure the image has Deno + fast-rlm (`pip install fast-rlm`
 plus the Deno install one-liner) — the host availability check can't guarantee it.
 
+**Known limitation:** during staging, the LLM key is written into the sandbox via a
+base64-encoded shell command, so it is briefly present (base64-encoded, not encrypted)
+in the execution backend's process arguments. On local/docker-on-host this stays on
+your machine; cloud backends are gated off by default (`allow_remote_backends: false`).
+Avoid running the `rlm` tool in a backend whose process list is visible to untrusted users.
+
 ## Config knobs (config.yaml)
 
 ```yaml

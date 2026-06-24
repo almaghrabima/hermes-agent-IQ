@@ -44,10 +44,14 @@ def main() -> int:
         else:
             result = fast_rlm.run(query=task, config=rlm_config)
 
+        if result.get("error"):
+            sys.stdout.write(json.dumps({"error": result["error"]}, ensure_ascii=False) + "\n")
+            return 1
+
         out = {
             "result": result.get("results"),
             "usage": result.get("usage"),
-            "log_path": result.get("log_path"),
+            "log_path": result.get("log_file"),
         }
         sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
         return 0
