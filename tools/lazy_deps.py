@@ -195,6 +195,8 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
         "mcp==1.26.0",
         "starlette==1.0.1",  # CVE-2026-48710 — keep in sync with pyproject [computer-use]
     ),
+    # Recursive Language Model runner
+    "tool.fast_rlm": ("fast-rlm==0.2.4",),
 }
 
 
@@ -537,6 +539,22 @@ def ensure(feature: str, *, prompt: bool = True) -> None:
         )
 
     logger.info("Lazy install complete for feature %r", feature)
+
+
+def pip_install_path(path: str) -> bool:
+    """Install a local checkout (non-editable) into the active venv.
+
+    Public wrapper around the internal installer so callers (e.g. the rlm
+    tool's availability gate) don't reach into a private symbol. Returns
+    True on success.
+
+    Deliberately NOT editable (``-e``): an editable install leaves the
+    checkout's source tree on ``sys.path``, which surfaces namespace clashes
+    for packages that ship both a top-level ``<name>.py`` and a ``<name>/``
+    package (fast-rlm does), breaking ``from <name> import X``. A regular
+    install lets the build backend resolve the correct package.
+    """
+    return _venv_pip_install((path,)).success
 
 
 def is_available(feature: str) -> bool:

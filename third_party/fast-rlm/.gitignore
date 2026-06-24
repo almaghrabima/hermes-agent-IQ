@@ -1,0 +1,12 @@
+*egg-info*
+*DS_Store
+*env
+*envrc
+*pyc
+*__pycache__*
+dist/
+site/
+logs/*
+.venv*
+data/*
+scripts/mcp_testbed/node_modules/*
