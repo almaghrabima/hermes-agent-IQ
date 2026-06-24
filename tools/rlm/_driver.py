@@ -37,12 +37,15 @@ def main() -> int:
 
         # fast-rlm semantics: the long content is `query` (or `input_file=<path>`),
         # and the *task* is `instruction`. Pass exactly one of query/input_file.
+        # verbose=False: fast-rlm otherwise prints its full REPL trace (tens to
+        # hundreds of KB) to stdout, which would be captured as the tool result
+        # and bloat context. We want only our single JSON line on stdout.
         task = cfg["query"]
         context_file = cfg.get("input_path") or cfg.get("context_path")
         if context_file:
-            result = fast_rlm.run(input_file=context_file, instruction=task, config=rlm_config)
+            result = fast_rlm.run(input_file=context_file, instruction=task, config=rlm_config, verbose=False)
         else:
-            result = fast_rlm.run(query=task, config=rlm_config)
+            result = fast_rlm.run(query=task, config=rlm_config, verbose=False)
 
         if result.get("error"):
             sys.stdout.write(json.dumps({"error": result["error"]}, ensure_ascii=False) + "\n")

@@ -18,7 +18,9 @@ def _fake_fast_rlm(tmp_path: Path) -> Path:
                 def __init__(self, **kw):
                     self.kw = kw
 
-            def run(query=None, instruction=None, input_file=None, config=None):
+            def run(query=None, instruction=None, input_file=None, config=None, verbose=True):
+                if verbose:
+                    print("VERBOSE_UI_NOISE")  # driver must pass verbose=False to suppress
                 return {
                     "results": f"answer to: {instruction or query}",
                     "usage": {"calls": 1, "completion_tokens": 5},
@@ -51,6 +53,9 @@ def test_driver_runs_and_emits_json(tmp_path, monkeypatch):
         capture_output=True, text=True, env=env,
     )
     assert proc.returncode == 0, proc.stderr
+    # Driver must pass verbose=False: stdout is exactly our one JSON line, no trace.
+    assert "VERBOSE_UI_NOISE" not in proc.stdout
+    assert len(proc.stdout.strip().splitlines()) == 1
     out = json.loads(proc.stdout.strip().splitlines()[-1])
     assert out["result"] == "answer to: count the rs"
     assert out["usage"]["calls"] == 1
@@ -62,7 +67,7 @@ def test_driver_reports_engine_error(tmp_path):
     (pkgdir / "fast_rlm").mkdir(parents=True)
     (pkgdir / "fast_rlm" / "__init__.py").write_text(
         "class RLMConfig:\n    def __init__(self, **kw):\n        pass\n"
-        "def run(query=None, instruction=None, input_file=None, config=None):\n"
+        "def run(query=None, instruction=None, input_file=None, config=None, verbose=True):\n"
         "    raise RuntimeError('budget exceeded')\n",
         encoding="utf-8",
     )
@@ -88,7 +93,7 @@ def test_driver_surfaces_engine_error_returned_without_raising(tmp_path):
     (pkgdir / "fast_rlm").mkdir(parents=True)
     (pkgdir / "fast_rlm" / "__init__.py").write_text(
         "class RLMConfig:\n    def __init__(self, **kw):\n        pass\n"
-        "def run(query=None, instruction=None, input_file=None, config=None):\n"
+        "def run(query=None, instruction=None, input_file=None, config=None, verbose=True):\n"
         "    return {'results': None, 'log_file': '/tmp/r.jsonl', 'usage': {}, 'error': 'engine boom'}\n",
         encoding="utf-8",
     )
