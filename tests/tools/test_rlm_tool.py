@@ -1,3 +1,5 @@
+import json
+
 import tools.rlm_tool as rlm_tool
 
 
@@ -86,3 +88,31 @@ def test_resolve_credentials_raises_without_key(monkeypatch):
         assert False, "expected RlmError"
     except rlm_tool.RlmError:
         pass
+
+
+def test_validate_context_args_rejects_both():
+    try:
+        rlm_tool._validate_context_args("inline text", "/some/path")
+        assert False, "expected RlmError"
+    except rlm_tool.RlmError:
+        pass
+
+
+def test_validate_context_args_allows_one_or_none():
+    rlm_tool._validate_context_args("inline", None)
+    rlm_tool._validate_context_args(None, "/p")
+    rlm_tool._validate_context_args(None, None)
+
+
+def test_build_cfg_has_no_secrets():
+    creds = rlm_tool.RlmCreds(base_url="b", api_key="SECRET", primary_agent="p", sub_agent="s")
+    rlm_cfg = dict(rlm_tool._RLM_CONFIG_DEFAULTS)
+    cfg = rlm_tool._build_rlm_cfg("q", creds, rlm_cfg, context_path="/tmp/ctx", input_path=None)
+    assert cfg["query"] == "q"
+    assert cfg["primary_agent"] == "p"
+    assert cfg["sub_agent"] == "s"
+    assert cfg["context_path"] == "/tmp/ctx"
+    assert cfg["input_path"] is None
+    assert cfg["max_global_calls"] == 50
+    assert "SECRET" not in json.dumps(cfg)
+    assert "api_key" not in cfg and "base_url" not in cfg

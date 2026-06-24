@@ -155,3 +155,22 @@ def _fast_rlm_available() -> bool:
 def check_rlm_available() -> bool:
     """Availability gate for the rlm tool schema (TTL-cached by the registry)."""
     return _deno_available() and _fast_rlm_available()
+
+
+def _validate_context_args(context, input_path) -> None:
+    if context and input_path:
+        raise RlmError("Provide either `context` or `input_path`, not both.")
+
+
+def _build_rlm_cfg(query, creds: RlmCreds, rlm_cfg: dict, context_path, input_path) -> dict:
+    """Build the cfg.json the driver reads. Contains NO secrets (key is env-only)."""
+    return {
+        "query": query,
+        "primary_agent": creds.primary_agent,
+        "sub_agent": creds.sub_agent,
+        "context_path": context_path,
+        "input_path": input_path,
+        "max_global_calls": rlm_cfg.get("max_global_calls", 50),
+        "max_money_spent": rlm_cfg.get("max_money_spent"),
+        "max_completion_tokens": rlm_cfg.get("max_completion_tokens"),
+    }
