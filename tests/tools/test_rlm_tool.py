@@ -171,6 +171,10 @@ def test_run_in_env_stages_files_and_parses(monkeypatch):
     # run command sources the env file and removes it
     run_cmd = next(c for c in env.commands if "_driver.py" in c)
     assert ".env.sh" in run_cmd and "rm -f" in run_cmd
+    # env file must be locked down (chmod 600) before sourcing
+    assert "chmod 600" in run_cmd
+    # env file must be sourced (POSIX dot or bash source)
+    assert (". " in run_cmd or "source " in run_cmd)
 
 
 def test_run_in_env_ships_inline_context(monkeypatch):
@@ -183,3 +187,7 @@ def test_run_in_env_ships_inline_context(monkeypatch):
     rlm_tool._run_rlm_in_env(env, "local", "task1", cfg, creds, context_text="my big context", timeout=600)
     ctx_files = [c for p, c in env.shipped.items() if "context" in p]
     assert ctx_files and ctx_files[0] == "my big context"
+    # cfg.json must reference the staged remote path, not the original PLACEHOLDER
+    cfg_content = next(c for p, c in env.shipped.items() if p.endswith("cfg.json"))
+    assert "PLACEHOLDER" not in cfg_content
+    assert "context.txt" in cfg_content
