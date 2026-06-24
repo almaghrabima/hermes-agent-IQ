@@ -184,6 +184,87 @@ def _build_rlm_cfg(query, creds: RlmCreds, rlm_cfg: dict, context_path, input_pa
     }
 
 
+_CLOUD_BACKENDS = {"modal", "daytona"}
+
+RLM_SCHEMA = {
+    "name": "rlm",
+    "description": (
+        "Run a Recursive Language Model (fast-rlm) over a long/large context. The RLM "
+        "drives a code REPL to explore, slice, and transform the context and can spawn "
+        "recursive sub-agents whose results stay out of your context. Use this when a "
+        "task spans far more text than is worth reading directly (huge logs, transcripts, "
+        "document sets). Provide the task in `query` and the long content via `context` "
+        "(inline) or `input_path` (a file in the workspace) — not both."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "The task/question to run over the context."},
+            "context": {"type": "string", "description": "Inline long text to load as the RLM prompt."},
+            "input_path": {"type": "string", "description": "Path to a file in the active environment to load instead of `context`."},
+            "primary_agent": {"type": "string", "description": "Override the RLM model (default: Hermes' active model)."},
+            "sub_agent": {"type": "string", "description": "Override the sub-agent model (default: primary_agent)."},
+            "max_global_calls": {"type": "integer", "description": "Override the RLM global call budget."},
+        },
+        "required": ["query"],
+    },
+}
+
+
+def rlm_tool(query, context=None, input_path=None, primary_agent=None,
+             sub_agent=None, max_global_calls=None, task_id=None) -> str:
+    try:
+        _validate_context_args(context, input_path)
+        rlm_cfg = _load_rlm_config()
+        if primary_agent is not None:
+            rlm_cfg["primary_agent"] = primary_agent
+        if sub_agent is not None:
+            rlm_cfg["sub_agent"] = sub_agent
+        if max_global_calls is not None:
+            rlm_cfg["max_global_calls"] = max_global_calls
+
+        env, env_type = _get_or_create_env(task_id or "default")
+        if env_type in _CLOUD_BACKENDS and not rlm_cfg.get("allow_remote_backends"):
+            raise RlmError(
+                f"fast-rlm is disabled for the '{env_type}' cloud backend because your LLM "
+                "key would transit to that sandbox. Set rlm.allow_remote_backends: true in "
+                "config.yaml to allow it."
+            )
+
+        creds = _resolve_rlm_credentials(rlm_cfg)
+        cfg = _build_rlm_cfg(query, creds, rlm_cfg, context_path=None, input_path=input_path)
+        out = _run_rlm_in_env(
+            env, env_type, task_id or "default", cfg, creds,
+            context_text=context, timeout=rlm_cfg.get("timeout_seconds", 600),
+        )
+        return json.dumps({"status": "success", **out}, ensure_ascii=False)
+    except RlmError as exc:
+        return json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False)
+    except Exception as exc:  # unexpected
+        logger.exception("rlm tool failed")
+        return json.dumps({"status": "error", "error": f"rlm failed: {exc}"}, ensure_ascii=False)
+
+
+from tools.registry import registry  # noqa: E402
+
+registry.register(
+    name="rlm",
+    toolset="rlm",
+    schema=RLM_SCHEMA,
+    handler=lambda args, **kw: rlm_tool(
+        query=args.get("query", ""),
+        context=args.get("context"),
+        input_path=args.get("input_path"),
+        primary_agent=args.get("primary_agent"),
+        sub_agent=args.get("sub_agent"),
+        max_global_calls=args.get("max_global_calls"),
+        task_id=kw.get("task_id"),
+    ),
+    check_fn=check_rlm_available,
+    emoji="🔁",
+    description="Recursive Language Model over long context (fast-rlm)",
+)
+
 _DRIVER_LOCAL_PATH = os.path.join(os.path.dirname(__file__), "rlm", "_driver.py")
 
 

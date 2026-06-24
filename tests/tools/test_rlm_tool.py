@@ -191,3 +191,71 @@ def test_run_in_env_ships_inline_context(monkeypatch):
     cfg_content = next(c for p, c in env.shipped.items() if p.endswith("cfg.json"))
     assert "PLACEHOLDER" not in cfg_content
     assert "context.txt" in cfg_content
+
+
+import json as _json
+
+
+def test_rlm_tool_rejects_both_context_and_path(monkeypatch):
+    monkeypatch.setattr(rlm_tool, "_load_rlm_config", lambda: dict(rlm_tool._RLM_CONFIG_DEFAULTS))
+    out = _json.loads(rlm_tool.rlm_tool(query="q", context="a", input_path="/p", task_id="t"))
+    assert out["status"] == "error"
+    assert "not both" in out["error"]
+
+
+def test_rlm_tool_blocks_cloud_backend_when_gate_off(monkeypatch):
+    cfg = dict(rlm_tool._RLM_CONFIG_DEFAULTS)
+    cfg["allow_remote_backends"] = False
+    monkeypatch.setattr(rlm_tool, "_load_rlm_config", lambda: cfg)
+    monkeypatch.setattr(rlm_tool, "_get_or_create_env", lambda task_id: (object(), "modal"))
+    out = _json.loads(rlm_tool.rlm_tool(query="q", task_id="t"))
+    assert out["status"] == "error"
+    assert "allow_remote_backends" in out["error"]
+
+
+def test_rlm_tool_happy_path(monkeypatch):
+    cfg = dict(rlm_tool._RLM_CONFIG_DEFAULTS)
+    monkeypatch.setattr(rlm_tool, "_load_rlm_config", lambda: cfg)
+    fake_env = object()
+    monkeypatch.setattr(rlm_tool, "_get_or_create_env", lambda task_id: (fake_env, "local"))
+    monkeypatch.setattr(
+        rlm_tool, "_resolve_rlm_credentials",
+        lambda c: rlm_tool.RlmCreds(base_url="b", api_key="k", primary_agent="p", sub_agent="s"),
+    )
+
+    captured = {}
+
+    def fake_run(env, env_type, task_id, cfg_, creds, context_text, timeout):
+        captured["cfg"] = cfg_
+        captured["context_text"] = context_text
+        return {"result": "done", "usage": {"calls": 3}, "log_path": "/l"}
+
+    monkeypatch.setattr(rlm_tool, "_run_rlm_in_env", fake_run)
+
+    out = _json.loads(rlm_tool.rlm_tool(query="count rs", context="big text", task_id="t"))
+    assert out["status"] == "success"
+    assert out["result"] == "done"
+    assert out["usage"]["calls"] == 3
+    assert out["log_path"] == "/l"
+    assert captured["context_text"] == "big text"
+    assert captured["cfg"]["query"] == "count rs"
+
+
+def test_rlm_schema_shape():
+    assert rlm_tool.RLM_SCHEMA["name"] == "rlm"
+    props = rlm_tool.RLM_SCHEMA["parameters"]["properties"]
+    assert "query" in props and "context" in props and "input_path" in props
+    assert rlm_tool.RLM_SCHEMA["parameters"]["required"] == ["query"]
+
+
+def test_rlm_registered_and_gated():
+    from tools.registry import registry
+    entry = registry.get_entry("rlm")
+    assert entry is not None
+    assert entry.check_fn is rlm_tool.check_rlm_available
+
+
+def test_rlm_not_in_core_tools():
+    import toolsets
+    assert "rlm" not in toolsets._HERMES_CORE_TOOLS
+    assert "rlm" in toolsets.TOOLSETS

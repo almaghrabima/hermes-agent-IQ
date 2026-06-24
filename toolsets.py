@@ -228,6 +228,12 @@ TOOLSETS = {
         "tools": ["clarify"],
         "includes": []
     },
+
+    "rlm": {
+        "description": "Recursive Language Model over long context (fast-rlm). Opt-in; requires Deno + fast-rlm.",
+        "tools": ["rlm"],
+        "includes": [],
+    },
     
     "code_execution": {
         "description": "Run Python scripts that call tools programmatically (reduces LLM round trips)",
