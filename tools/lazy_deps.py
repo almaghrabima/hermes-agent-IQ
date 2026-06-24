@@ -541,14 +541,20 @@ def ensure(feature: str, *, prompt: bool = True) -> None:
     logger.info("Lazy install complete for feature %r", feature)
 
 
-def pip_install_editable(path: str) -> bool:
-    """Install a local checkout in editable mode into the active venv.
+def pip_install_path(path: str) -> bool:
+    """Install a local checkout (non-editable) into the active venv.
 
     Public wrapper around the internal installer so callers (e.g. the rlm
     tool's availability gate) don't reach into a private symbol. Returns
     True on success.
+
+    Deliberately NOT editable (``-e``): an editable install leaves the
+    checkout's source tree on ``sys.path``, which surfaces namespace clashes
+    for packages that ship both a top-level ``<name>.py`` and a ``<name>/``
+    package (fast-rlm does), breaking ``from <name> import X``. A regular
+    install lets the build backend resolve the correct package.
     """
-    return _venv_pip_install((f"-e {path}",)).success
+    return _venv_pip_install((path,)).success
 
 
 def is_available(feature: str) -> bool:

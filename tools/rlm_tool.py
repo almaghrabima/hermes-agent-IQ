@@ -121,8 +121,8 @@ def _fast_rlm_available() -> bool:
     """True when fast_rlm is importable, or lazily installable.
 
     Resolution order:
-      1. fast_rlm already importable (covers an editable ``pip install -e`` checkout).
-      2. rlm.engine_path set + exists -> ``pip install -e <engine_path>`` on first use.
+      1. fast_rlm already importable (covers a checkout the user installed themselves).
+      2. rlm.engine_path set + exists -> ``pip install <engine_path>`` (non-editable) on first use.
       3. lazy_deps.ensure("tool.fast_rlm") against pinned PyPI.
     """
     import importlib.util
@@ -130,7 +130,8 @@ def _fast_rlm_available() -> bool:
     if importlib.util.find_spec("fast_rlm") is not None:
         return True
 
-    # (2) editable checkout override
+    # (2) local checkout override (non-editable: an editable install surfaces
+    # fast-rlm's fast_rlm.py/fast_rlm-package namespace clash and breaks import)
     try:
         from hermes_cli.config import load_config_readonly
 
@@ -142,12 +143,12 @@ def _fast_rlm_available() -> bool:
 
         if os.path.isdir(engine_path):
             try:
-                from tools.lazy_deps import pip_install_editable
+                from tools.lazy_deps import pip_install_path
 
-                if pip_install_editable(engine_path) and importlib.util.find_spec("fast_rlm") is not None:
+                if pip_install_path(engine_path) and importlib.util.find_spec("fast_rlm") is not None:
                     return True
             except Exception as exc:
-                logger.debug("editable fast-rlm install from %s failed: %s", engine_path, exc)
+                logger.debug("fast-rlm install from %s failed: %s", engine_path, exc)
 
     # (3) pinned PyPI
     try:

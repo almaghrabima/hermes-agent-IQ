@@ -43,8 +43,11 @@ reasoning later with `viewlog <log_path>` / `fast-rlm-log <log_path>`.
 
 - **Deno 2+** must be installed (fast-rlm runs its REPL on Deno/Pyodide):
   `curl -fsSL https://deno.land/install.sh | sh`.
-- **fast-rlm** is auto-installed (pinned PyPI) on first use, or used from an
-  editable checkout if one is importable / `rlm.engine_path` is set in config.yaml.
+- **fast-rlm** is auto-installed (pinned PyPI) on first use. To use a local
+  checkout instead, set `rlm.engine_path` in config.yaml — it is installed
+  **non-editable** (an editable `-e` install breaks fast-rlm's import because
+  the checkout ships both `fast_rlm.py` and a `fast_rlm/` package). A checkout
+  you've already installed yourself is used as-is.
 - Credentials: the tool reuses Hermes' **active provider** automatically — no
   separate key to set. Override the model with `rlm.primary_agent` in config.yaml.
 

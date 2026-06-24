@@ -28,7 +28,7 @@ def test_deno_available_uses_which(monkeypatch):
     assert rlm_tool._deno_available() is False
 
 
-def test_pip_install_editable_wraps_internal(monkeypatch):
+def test_pip_install_path_wraps_internal(monkeypatch):
     import tools.lazy_deps as lazy_deps
 
     class _R:
@@ -36,8 +36,10 @@ def test_pip_install_editable_wraps_internal(monkeypatch):
 
     calls = []
     monkeypatch.setattr(lazy_deps, "_venv_pip_install", lambda specs, **kw: calls.append(specs) or _R())
-    assert lazy_deps.pip_install_editable("/some/checkout") is True
-    assert calls == [("-e /some/checkout",)]
+    # Non-editable: the path is passed as-is (no "-e ") so fast-rlm's
+    # fast_rlm.py/fast_rlm-package namespace clash doesn't surface.
+    assert lazy_deps.pip_install_path("/some/checkout") is True
+    assert calls == [("/some/checkout",)]
 
 
 def test_load_rlm_config_merges_defaults(monkeypatch):
