@@ -71,24 +71,27 @@ docker run --rm -i [--runtime <kernel_runtime>] --network <kernel_network> \
 
 | Key | Default | Notes |
 |---|---|---|
-| `kernel_runtime` | *(Docker default — `runc`)* | Set to `runsc` for **gVisor** syscall-level isolation. **Linux hosts with gVisor only** — not available on macOS/Docker Desktop. Selecting `runsc` on a host without gVisor fails with Docker's "unknown runtime" error. |
+| `kernel_runtime` | *(Docker default — `runc`)* | `runsc` for **gVisor** syscall isolation (**Linux+gVisor only**); `kata`/`kata-fc` for **microVM** (hardware-VM) isolation (**Linux+KVM only**, Kata registered with Docker). Any non-`runc` value is **preflighted** in `Kernel.start` (`preflightRuntime`) — an unregistered runtime or missing `/dev/kvm` fails with a single actionable error instead of a raw Docker failure, and never downgrades to a weaker runtime. |
 | `kernel_image` | `python:3.11-slim` | The container image. The kernel itself is stdlib-only and works with any Python 3.8+ image. **The agent's code runs here too**, so use a richer image (e.g. one with pandas/numpy pre-installed) if the agent needs those libraries. |
 | `kernel_network` | `none` | The Docker network mode. Default `none` means the agent's code has **no network egress**. `llm_query`/MCP calls still work because they ride the stdio control channel to the host — the host makes the LLM/MCP calls, not the container. Set to `bridge` if the agent code itself must make direct HTTP requests. |
 
 **Boundary strength is host-OS-dependent.** True VM-level isolation (gVisor's KVM
-platform, or the proposed Firecracker/Kata microVM runtimes) requires a **Linux host
-with `/dev/kvm`** — it is *not* native on macOS or Windows. Practical guidance:
+platform, or the Kata/Firecracker microVM runtimes) requires a **Linux host with
+`/dev/kvm`** — it is *not* native on macOS or Windows. Practical guidance:
 
 | Host OS | What `docker` mode actually gives you today | Strongest available boundary |
 |---|---|---|
-| **Linux** | `runc` (namespaces+cgroups) or `runsc` (gVisor user-space syscall interception) | gVisor today; **Firecracker/Kata microVM proposed** (Linux+KVM only) |
+| **Linux** | `runc` (namespaces+cgroups), `runsc` (gVisor user-space syscall interception), or `kata`/`kata-fc` (microVM) | Kata/Firecracker microVM (Linux+KVM+Kata); gVisor otherwise |
 | **macOS** | `runc` only, **inside Docker Desktop's shared Linux VM** (no `runsc`, no per-exec microVM) | the host Linux VM itself; native Seatbelt is weaker and repeatedly bypassed |
 | **Windows** | `runc` via the WSL2/Docker-Desktop Linux VM | Hyper-V isolation, or run the Linux `runc`/`runsc` stack under WSL2 |
 
-Only `runc` and `runsc` are implemented; `runsc` is Linux-only and fails with Docker's
-"unknown runtime" error elsewhere. The per-OS matrix and the proposed microVM backend
-are specified in the Hermes repo at
-`docs/rlm/2026-06-25-fast-rlm-kernel-phase4-per-os-boundaries-design.md`.
+`runc`, `runsc`, and the `kata`/`kata-fc` microVM runtimes are recognized and
+**preflighted** (`preflightRuntime` in `kernel_client.ts`): a non-`runc` runtime that
+isn't registered with Docker — or a microVM runtime on a host without `/dev/kvm` —
+fails with a single actionable error rather than a raw Docker failure. The microVM e2e
+(`docker_launcher_test.ts`) only runs on a Linux/KVM host with Kata installed and
+**skips** elsewhere (incl. macOS). The per-OS matrix and design rationale are in the
+Hermes repo at `docs/rlm/2026-06-25-fast-rlm-kernel-phase4-per-os-boundaries-design.md`.
 
 ### Config reference
 
@@ -97,7 +100,7 @@ are specified in the Hermes repo at
 | `executor` | `"pyodide" \| "subprocess"` | `"pyodide"` | Selects the code executor |
 | `executor_unsandboxed_ack` | `bool` | `false` | Must be `true` to start `subprocess` with `kernel_sandbox: local` |
 | `kernel_sandbox` | `"local" \| "docker"` | `"local"` | Sandbox mode for the `subprocess` executor |
-| `kernel_runtime` | `str` | *(runc)* | Docker runtime — `runsc` for gVisor (Linux + gVisor only; fails elsewhere); `docker` mode only. Boundary strength is host-OS-dependent (see "Boundary strength" above) |
+| `kernel_runtime` | `str` | *(runc)* | Docker runtime — `runsc` (gVisor, Linux only) or `kata`/`kata-fc` (microVM, Linux+KVM only); `docker` mode only. Non-`runc` values are preflighted; boundary strength is host-OS-dependent (see "Boundary strength" above) |
 | `kernel_image` | `str` | `python:3.11-slim` | Container image for the kernel; `docker` mode only |
 | `kernel_network` | `str` | `none` | Docker network mode; `docker` mode only |
 | `RLM_KERNEL_PYTHON` (env) | path/name | `python3` | Python interpreter for `kernel_sandbox: local` |
