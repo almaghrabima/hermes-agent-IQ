@@ -1173,7 +1173,8 @@ e2e (`docker_launcher_test.ts`) **skips** off a Linux/KVM/Kata host.
 
 **Tools:**
 - `durable_run` — submit an ordered list of subagent `steps` as a retrying Temporal
-  workflow; returns a `run_id`; blocks up to `wait_seconds` (default 30) then polls.
+  workflow; blocks up to `wait_seconds` (default 30) for an inline result, otherwise
+  returns a `run_id` to poll with `durable_status`.
 - `durable_status` — query a running or completed workflow by `run_id`.
 
 **Config block (`temporal:` in `config.yaml`):**
@@ -1189,9 +1190,9 @@ e2e (`docker_launcher_test.ts`) **skips** off a Linux/KVM/Kata host.
 | `step_timeout_seconds` | `600` | per-step activity timeout |
 | `default_retry` | `{max_attempts:3, initial_interval_seconds:1, backoff_coefficient:2.0}` | |
 
-Secrets go in `.env`: `TEMPORAL_API_KEY` (Temporal Cloud), `TEMPORAL_TLS_CERT` /
-`TEMPORAL_TLS_KEY` (mTLS). Both Temporal Cloud and self-hosted are supported; the
-dev-server default requires no external process.
+Secrets go in `.env`: `TEMPORAL_API_KEY` (Temporal Cloud). Both Temporal Cloud and
+self-hosted are supported; the dev-server default requires no external process.
+(mTLS cert/key: future work.)
 
 **Worker:** the agent process holds only a client. Workflows execute in a separate
 worker process started with `hermes temporal worker`.

@@ -6,6 +6,8 @@ from plugins.temporal.client import connect
 
 
 async def run_worker(s) -> None:
+    from tools.registry import discover_builtin_tools
+    discover_builtin_tools()
     from temporalio.worker import Worker  # type: ignore
     from plugins.temporal.workflows import _make_workflow
     from plugins.temporal.activities import _make_activity

@@ -7,7 +7,13 @@ from typing import Callable
 def _delegate_handler() -> Callable:
     """Return the registered delegate_task handler (subagent runner)."""
     from tools.registry import registry
-    return registry._tools["delegate_task"].handler
+    entry = registry._tools.get("delegate_task")
+    if entry is None:
+        raise RuntimeError(
+            "delegate_task tool not registered; the temporal worker must run "
+            "builtin tool discovery before serving"
+        )
+    return entry.handler
 
 
 def execute_durable_step(step: dict) -> dict:

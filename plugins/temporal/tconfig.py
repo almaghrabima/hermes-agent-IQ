@@ -17,8 +17,6 @@ class TemporalSettings:
     step_timeout_seconds: int = 600
     retry: dict = field(default_factory=lambda: dict(_DEFAULT_RETRY))
     api_key: Optional[str] = None
-    tls_cert: Optional[str] = None
-    tls_key: Optional[str] = None
 
 
 def resolve_temporal_config(config: Optional[dict] = None, env: Optional[dict] = None) -> TemporalSettings:
@@ -38,6 +36,4 @@ def resolve_temporal_config(config: Optional[dict] = None, env: Optional[dict] =
         step_timeout_seconds=int(t.get("step_timeout_seconds", 600)),
         retry=retry,
         api_key=env.get("TEMPORAL_API_KEY"),
-        tls_cert=env.get("TEMPORAL_TLS_CERT"),
-        tls_key=env.get("TEMPORAL_TLS_KEY"),
     )
