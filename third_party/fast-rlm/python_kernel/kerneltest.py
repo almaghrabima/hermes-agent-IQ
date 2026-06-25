@@ -118,10 +118,21 @@ async def test_host_bridge_llm_query():
     wb.close()
 
 
+async def test_non_serializable_final_sets_error():
+    (ra, wa), _ = await _pair()
+    k = K.Kernel(ra, wa)
+    k._inject_bridge()
+    await _setup(k, _FINAL_DEF)
+    r = await k.run_step("FINAL({'bad': set([1, 2, 3])})")  # set() is not JSON-serializable
+    check("non-serializable final -> not set", r["final_set"] is False)
+    check("non-serializable final -> final_error populated", bool(r["final_error"]))
+
+
 async def main():
     await test_state_and_final()
     await test_register_tool_and_error()
     await test_host_bridge_llm_query()
+    await test_non_serializable_final_sets_error()
     print(("FAILED: " + ", ".join(FAILURES)) if FAILURES else "ALL PASS")
     sys.exit(1 if FAILURES else 0)
 
