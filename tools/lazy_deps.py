@@ -197,6 +197,8 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     ),
     # Recursive Language Model runner
     "tool.fast_rlm": ("fast-rlm==0.2.4",),
+    # Durable orchestration plugin
+    "tool.temporal": ("temporalio==1.29.0",),
 }
 
 

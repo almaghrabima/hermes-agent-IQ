@@ -1,0 +1,8 @@
+name: temporal
+version: 1.0.0
+description: "Durable multi-step orchestration via Temporal (durable_run / durable_status)."
+author: "hermes-agent-IQ"
+kind: standalone
+provides_tools:
+  - durable_run
+  - durable_status
