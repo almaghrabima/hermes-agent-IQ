@@ -16,6 +16,9 @@ interface ValidateFunction {
 }
 import { confirmDelegation, generate_code, Usage } from "./call_llm.ts";
 import { loadConfig } from "./config.ts";
+import type { RlmConfig } from "./config.ts";
+import { Kernel } from "./kernel_client.ts";
+import type { StepResult } from "./kernel_client.ts";
 import { isAcpModel } from "./acp.ts";
 // MCP is optional: only the *types* are imported statically (erased at compile,
 // so they pull in nothing at runtime). The implementation in ./mcp.ts — and its
@@ -70,16 +73,29 @@ function requirePrimaryAgent(): string {
     }
     return p;
 }
-const PRIMARY_AGENT: string = requirePrimaryAgent();
-const SUB_AGENT: string = _config.sub_agent ?? PRIMARY_AGENT;
+// These four are resolved lazily on the first subagent() call rather than at
+// module-eval. This keeps importing the module (e.g. for the pure
+// assertSubprocessAllowed gate) side-effect-free: requirePrimaryAgent() still
+// throws on a missing primary_agent, just at run time — and every real run's
+// first action is to call subagent(), so the error timing/behavior is unchanged.
+let PRIMARY_AGENT!: string;
+let SUB_AGENT!: string;
+let MAX_GLOBAL_CALLS!: number;
+let _agentsResolved = false;
+function resolveAgents(): void {
+    if (_agentsResolved) return;
+    PRIMARY_AGENT = requirePrimaryAgent();
+    SUB_AGENT = _config.sub_agent ?? PRIMARY_AGENT;
+    // ACP runs have no working token/cost budget (usage is always zero), so they
+    // get a default global call ceiling of 50 unless overridden. Other backends
+    // stay unlimited by default and rely on the token/cost budgets.
+    const _acpRun = isAcpModel(PRIMARY_AGENT) || isAcpModel(SUB_AGENT);
+    MAX_GLOBAL_CALLS = _config.max_global_calls ?? (_acpRun ? 50 : Infinity);
+    _agentsResolved = true;
+}
 const MAX_MONEY_SPENT = _config.max_money_spent ?? Infinity;
 const MAX_COMPLETION_TOKENS = _config.max_completion_tokens ?? 50000;
 const MAX_PROMPT_TOKENS = _config.max_prompt_tokens ?? 200000;
-// ACP runs have no working token/cost budget (usage is always zero), so they get
-// a default global call ceiling of 50 unless overridden. Other backends stay
-// unlimited by default and rely on the token/cost budgets.
-const _acpRun = isAcpModel(PRIMARY_AGENT) || isAcpModel(SUB_AGENT);
-const MAX_GLOBAL_CALLS = _config.max_global_calls ?? (_acpRun ? 50 : Infinity);
 const API_MAX_RETRIES = _config.api_max_retries ?? 3;
 const API_TIMEOUT_MS = _config.api_timeout_ms ?? 600000;
 const ENABLE_TOOLS = _config.enable_tools ?? true;
@@ -91,6 +107,24 @@ const COMPRESSION_RATIO = _config.compression_ratio ?? 0.6;
 // this; they receive an instruction only when their parent passes one explicitly
 // via llm_query(instruction=...). There is intentionally no global instruction.
 const ROOT_INSTRUCTION = _config.instruction ?? null;
+// Phase-1 executor selection. `??` treats BOTH Python `None` (serialized as
+// `executor: null`) AND `undefined` as the default "pyodide". Do NOT use `||`.
+const EXECUTOR: "pyodide" | "subprocess" = _config.executor ?? "pyodide";
+
+/**
+ * Phase-1 safety gate: the subprocess executor runs UN-SANDBOXED native Python.
+ * Pure and exported so it is testable without spinning the whole engine.
+ */
+export function assertSubprocessAllowed(
+    cfg: Pick<RlmConfig, "executor" | "executor_unsandboxed_ack">,
+): void {
+    if (cfg.executor === "subprocess" && !cfg.executor_unsandboxed_ack) {
+        throw new Error(
+            "executor: subprocess runs UN-SANDBOXED native Python (Phase 1). " +
+            "Set executor_unsandboxed_ack: true to acknowledge, or use executor: pyodide.",
+        );
+    }
+}
 
 function truncateText(text: string): string {
     let truncatedOutput = "";
@@ -151,6 +185,10 @@ export async function subagent(
     // what its parent explicitly passed, with no carry-on from ancestors.
     instruction?: string | null,
 ) {
+    // Resolve the agent selectors on first use (throws on a missing
+    // primary_agent). Deferred from module-eval so importing this module stays
+    // side-effect-free for the pure assertSubprocessAllowed gate.
+    resolveAgents();
     // Structured I/O ablation: when disabled, ignore any requested output schema
     // (no validation, no schema preamble) and present dict/list contexts as plain
     // strings instead of running the structured flat-schema probe.
@@ -162,31 +200,55 @@ export async function subagent(
     const logger = new Logger(subagent_depth, MAX_CALLS, parent_run_id);
     logger.logAgentStart();
 
+    // Phase-1 safety gate: refuse the un-sandboxed subprocess executor unless the
+    // caller acknowledged it. Pyodide (the default) is unaffected.
+    assertSubprocessAllowed(_config);
+    const USE_SUBPROCESS = EXECUTOR === "subprocess";
+
     const model_name = subagent_depth == 0 ? PRIMARY_AGENT : SUB_AGENT;
     const is_leaf_agent = subagent_depth == MAX_DEPTH;
     let stdoutBuffer = "";
 
-    const pyodide = await loadPyodide({
-        stderr: (text: string) => console.error(`[Python Stderr]: ${text}`),
-        stdout: (text: string) => {
-            stdoutBuffer += text + "\n";
-        },
-    });
-    console.log("✔ Python Ready");
+    // The Pyodide VM is only booted for the default in-process executor. The
+    // subprocess executor boots an out-of-process native Python kernel instead
+    // (started below, once setup_code is built). `pyodide` is non-null only on
+    // the Pyodide path; all Pyodide-specific access is guarded by !USE_SUBPROCESS.
+    // deno-lint-ignore no-explicit-any
+    let pyodide: any = null;
+    // The connected subprocess kernel (subprocess path only).
+    let kernel: Kernel | null = null;
+    if (!USE_SUBPROCESS) {
+        pyodide = await loadPyodide({
+            stderr: (text: string) => console.error(`[Python Stderr]: ${text}`),
+            stdout: (text: string) => {
+                stdoutBuffer += text + "\n";
+            },
+        });
+        console.log("✔ Python Ready");
 
-    // Make `requests` work inside the WASM REPL:
-    //   1. loadPackage("micropip") — bundled with Pyodide, no network needed.
-    //   2. micropip.install("requests", "pyodide-http") — pure-Python wheels.
-    //   3. pyodide_http.patch_all() — routes requests/urllib through host fetch.
-    // After this, any tool can `import requests; requests.get(...)` as normal.
-    const envSetupStart = Date.now();
-    await pyodide.loadPackage("micropip");
-    await pyodide.runPythonAsync(`
+        // Make `requests` work inside the WASM REPL:
+        //   1. loadPackage("micropip") — bundled with Pyodide, no network needed.
+        //   2. micropip.install("requests", "pyodide-http") — pure-Python wheels.
+        //   3. pyodide_http.patch_all() — routes requests/urllib through host fetch.
+        // After this, any tool can `import requests; requests.get(...)` as normal.
+        const envSetupStart = Date.now();
+        await pyodide.loadPackage("micropip");
+        await pyodide.runPythonAsync(`
 import micropip
 await micropip.install(["requests", "httpx"])
 `);
-    const envSetupMs = Date.now() - envSetupStart;
-    console.log(`✔ requests + httpx ready (env setup took ${envSetupMs}ms)`);
+        const envSetupMs = Date.now() - envSetupStart;
+        console.log(`✔ requests + httpx ready (env setup took ${envSetupMs}ms)`);
+    } else {
+        // Native Python already has requests/httpx — the micropip step is
+        // Pyodide-only and is intentionally skipped here.
+        console.log("✔ Subprocess kernel selected (native Python)");
+    }
+
+    // Everything below runs against the chosen executor. The subprocess kernel
+    // is a live child process + socket, so it must always be torn down — hence
+    // the try/finally wrapping the whole agent body. (Pyodide needs no teardown.)
+    try {
 
     const pyProxyToJs = (val: unknown): unknown => {
         if (val && typeof (val as { toJs?: unknown }).toJs === "function") {
@@ -293,7 +355,7 @@ await micropip.install(["requests", "httpx"])
         );
         return output;
     };
-    pyodide.globals.set("__js_llm_query__", js_llm_query);
+    if (!USE_SUBPROCESS) pyodide.globals.set("__js_llm_query__", js_llm_query);
 
     // ---- Batch compression guard -------------------------------------------
     // batch_llm_query (a drop-in for asyncio.gather over llm_query calls) routes
@@ -338,7 +400,7 @@ await micropip.install(["requests", "httpx"])
         trackUsage(verdict.usage);
         return verdict.approve;
     };
-    pyodide.globals.set("__js_batch_confirm__", js_batch_confirm);
+    if (!USE_SUBPROCESS) pyodide.globals.set("__js_batch_confirm__", js_batch_confirm);
 
     // ---- MCP bridge --------------------------------------------------------
     // Which servers this agent may see: null → all (root), else the granted set.
@@ -360,7 +422,7 @@ await micropip.install(["requests", "httpx"])
     };
     const mcpEnabled = mcp != null && (allowedServers.length > 0 || mcpData.allowedServers === null);
 
-    if (mcpEnabled) {
+    if (mcpEnabled && !USE_SUBPROCESS) {
         pyodide.globals.set("__js_mcp_call__", async (server: unknown, tool: unknown, args: unknown) => {
             const a = (pyProxyToJs(args) ?? {}) as Record<string, unknown>;
             return await mcp!.callTool(String(server), String(tool), a);
@@ -369,6 +431,22 @@ await micropip.install(["requests", "httpx"])
             return await mcp!.readResource(String(server), String(uri));
         });
     }
+
+    // Host handlers for the subprocess kernel: the SAME closures the Pyodide path
+    // injects as Python globals, dispatched by op name. The kernel's Python shims
+    // (kernel.py) pack their args into these payload keys. Return shapes mirror
+    // what fast-rlm's existing Python wrappers expect:
+    //   - llm_query: the child's FINAL output object (js_llm_query already returns it)
+    //   - batch_confirm: the boolean DIRECTLY (Python treats it as a bool — not {approve})
+    //   - mcp_call: the JSON string the existing arrow returns (Python json.loads()es it)
+    //   - mcp_read_resource: the JSON string the existing arrow returns
+    // deno-lint-ignore no-explicit-any
+    const hostHandlers: Record<string, (p: any) => Promise<unknown>> = {
+        llm_query: (p) => js_llm_query(p.context, p.schema, p.tools, p.mcp, p.instruction, p.suppress_guard),
+        batch_confirm: (p) => js_batch_confirm(p.meta),
+        mcp_call: (p) => mcp!.callTool(String(p.server), String(p.tool), p.args ?? {}),
+        mcp_read_resource: (p) => mcp!.readResource(String(p.server), String(p.uri)),
+    };
 
     // Initialize context. Strings are embedded as Python string literals;
     // dicts/lists are passed through json.loads so the agent gets a real
@@ -558,21 +636,38 @@ def _guarded_gather(*aws, **kw):
     return _real_gather(*aws, **kw)
 _aio_guard.gather = _guarded_gather
 ` : ""}`;
-    await pyodide.runPythonAsync(setup_code);
+    if (USE_SUBPROCESS) {
+        // Boot the out-of-process kernel now that setup_code and the host
+        // handlers are ready. kernel.setup() runs the same pyodide-agnostic
+        // setup_code (which pre-defines FINAL/llm_query/etc.) in the kernel's
+        // global namespace, exactly as pyodide.runPythonAsync would.
+        kernel = await Kernel.start({
+            python: Deno.env.get("RLM_KERNEL_PYTHON") ?? "python3",
+            kernelPath: new URL("../python_kernel/kernel.py", import.meta.url).pathname,
+            handlers: hostHandlers,
+        });
+        await kernel.setup(setup_code);
+    } else {
+        await pyodide.runPythonAsync(setup_code);
+    }
 
     // Register tools (if any) into the REPL globals + __tools__ list.
     // Skipped entirely when the tools capability is disabled (ablation).
     if (ENABLE_TOOLS && toolSources && toolSources.length) {
         for (const src of toolSources) {
-            await pyodide.runPythonAsync(
-                `__register_tool__(${JSON.stringify(src)})`
-            );
+            if (USE_SUBPROCESS) {
+                await kernel!.registerTool(src);
+            } else {
+                await pyodide.runPythonAsync(
+                    `__register_tool__(${JSON.stringify(src)})`
+                );
+            }
         }
     }
 
     // Inject MCP proxy functions (scoped to this agent's allowed servers).
     if (mcpEnabled) {
-        await pyodide.runPythonAsync(`
+        const mcpSetupCode = `
 import json as _json
 __mcp_data__ = _json.loads(${JSON.stringify(JSON.stringify(mcpData))})
 __mcp_allowed_servers__ = __mcp_data__["allowedServers"]
@@ -644,7 +739,14 @@ async def mcp_read_resource(uri, server=None):
     _out = [c.get("text") if c.get("text") is not None else c
             for c in _res.get("contents", []) if isinstance(c, dict)]
     return _out[0] if len(_out) == 1 else _out
-`);
+`;
+        // Only async-function definitions here (no top-level await), so the
+        // kernel's plain exec-based setup() runs it just like pyodide.
+        if (USE_SUBPROCESS) {
+            await kernel!.setup(mcpSetupCode);
+        } else {
+            await pyodide.runPythonAsync(mcpSetupCode);
+        }
     }
 
     const mcpProbeCode = mcpEnabled
@@ -722,7 +824,12 @@ else:
 ${toolsProbeCode}${mcpProbeCode}`
     stdoutBuffer = "";
     const step0ExecStart = now();
-    await pyodide.runPythonAsync(initial_code);
+    if (USE_SUBPROCESS) {
+        const step0 = await kernel!.runStep(initial_code);
+        stdoutBuffer = step0.stdout;
+    } else {
+        await pyodide.runPythonAsync(initial_code);
+    }
     const step0ExecEnd = now();
     let messages = [
         {
@@ -862,13 +969,23 @@ Output:\n${stdoutBuffer.trim()}
         stdoutBuffer = "";
 
         const execStart = now();
-        try {
-            await pyodide.runPythonAsync(code);
-        } catch (error) {
-            if (error instanceof Error) {
-                stdoutBuffer += `\nError: ${error.message} `;
-            } else {
-                stdoutBuffer += `\nError: ${error} `;
+        // Subprocess path: the kernel captures stdout/stderr itself and returns
+        // the FINAL state per step; on error it both prints "\nError: ..." into
+        // stdout and returns the traceback. Pyodide path: run in-process and read
+        // the FINAL globals afterward.
+        let kernelStep: StepResult | null = null;
+        if (USE_SUBPROCESS) {
+            kernelStep = await kernel!.runStep(code);
+            stdoutBuffer = kernelStep.stdout;
+        } else {
+            try {
+                await pyodide.runPythonAsync(code);
+            } catch (error) {
+                if (error instanceof Error) {
+                    stdoutBuffer += `\nError: ${error.message} `;
+                } else {
+                    stdoutBuffer += `\nError: ${error} `;
+                }
             }
         }
         const execEnd = now();
@@ -881,10 +998,14 @@ Output:\n${stdoutBuffer.trim()}
             execution_end: execEnd,
         };
 
-        const finalResultSet = pyodide.globals.get("__final_result_set__");
+        const finalResultSet = USE_SUBPROCESS
+            ? kernelStep!.final_set
+            : pyodide.globals.get("__final_result_set__");
         if (finalResultSet) {
-            let result = pyodide.globals.get("__final_result__");
-            if (result && typeof result.toJs === "function") {
+            // Subprocess: final_value is already a plain JSON-decoded JS value.
+            // Pyodide: unwrap the PyProxy to JS.
+            let result = USE_SUBPROCESS ? kernelStep!.final_value : pyodide.globals.get("__final_result__");
+            if (!USE_SUBPROCESS && result && typeof result.toJs === "function") {
                 result = result.toJs({ dict_converter: Object.fromEntries });
             }
 
@@ -897,9 +1018,13 @@ Output:\n${stdoutBuffer.trim()}
                     `Validation errors:\n${errText}\n\n` +
                     `Fix the value and call FINAL again. The agent state is preserved; you do not need to recompute everything.`;
                 // Reset Python flags so the loop continues.
-                await pyodide.runPythonAsync(
-                    "__final_result__ = None\n__final_result_set__ = False\n"
-                );
+                if (USE_SUBPROCESS) {
+                    await kernel!.resetFinal();
+                } else {
+                    await pyodide.runPythonAsync(
+                        "__final_result__ = None\n__final_result_set__ = False\n"
+                    );
+                }
                 stdoutBuffer += `\n${feedback}\n`;
                 const truncatedErr = truncateText(stdoutBuffer);
                 logger.logStep({
@@ -961,6 +1086,13 @@ Output:\n${stdoutBuffer.trim()}
 
     logger.logAgentEnd();
     throw new Error("Did not finish the function stack before subagent died");
+    } finally {
+        // Tear down the out-of-process kernel (kills the child + closes the
+        // socket). No-op on the Pyodide path (kernel stays null).
+        if (kernel) {
+            try { await kernel.shutdown(); } catch { /* kernel may already be gone */ }
+        }
+    }
 }
 
 if (import.meta.main) {

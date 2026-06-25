@@ -88,6 +88,12 @@ class RLMConfig:
     #   acp_agents={"hermes": {"command": "hermes", "args": ["acp"]}}
     # Each value: {command, args?, readonly_mode?, model?, env?}.
     acp_agents: Optional[dict] = None
+    # Phase-1 executor selection. "pyodide" (default) runs the agent's code in
+    # the in-process WASM VM. "subprocess" runs it in an out-of-process native
+    # Python kernel (kernel.py) — UN-SANDBOXED in Phase 1, so it refuses to run
+    # unless executor_unsandboxed_ack is True.
+    executor: Optional[str] = None
+    executor_unsandboxed_ack: bool = False
 
     @classmethod
     def default(cls) -> "RLMConfig":
@@ -334,6 +340,13 @@ def run(
     # host needs --allow-run when either agent is an "acp:" model.
     _agents = [merged_config.get("primary_agent") or "", merged_config.get("sub_agent") or ""]
     if any(a.startswith("acp:") for a in _agents):
+        cmd.append("--allow-run")
+
+    # The subprocess executor spawns the out-of-process Python kernel
+    # (python_kernel/kernel.py) as a child process, so the Deno host needs
+    # --allow-run. (--allow-write, already granted above, covers the UNIX
+    # socket the kernel connects to.)
+    if merged_config.get("executor") == "subprocess" and "--allow-run" not in cmd:
         cmd.append("--allow-run")
 
     cmd += [
