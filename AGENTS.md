@@ -942,7 +942,7 @@ platforms inherit from.
 Current toolset keys: `browser`, `clarify`, `code_execution`, `cronjob`,
 `debugging`, `delegation`, `discord`, `discord_admin`, `feishu_doc`,
 `feishu_drive`, `file`, `homeassistant`, `image_gen`, `kanban`, `memory`,
-`messaging`, `moa`, `rl`, `safe`, `search`, `session_search`, `skills`,
+`messaging`, `moa`, `rlm`, `safe`, `search`, `session_search`, `skills`,
 `spotify`, `terminal`, `todo`, `tts`, `video`, `vision`, `web`, `yuanbao`.
 
 Enable/disable per platform via `hermes tools` (the curses UI) or the
@@ -1093,6 +1093,60 @@ Isolation model:
   loops.
 
 Full user-facing docs: `website/docs/user-guide/features/kanban.md`.
+
+---
+
+## RLM (`rlm`) & kernel sandboxing
+
+`tools/rlm_tool.py` is an **opt-in** toolset (`"rlm"`, not in `_HERMES_CORE_TOOLS`)
+that delegates long-context work to **fast-rlm** (vendored at `third_party/fast-rlm/`):
+a Recursive Language Model that drives a code REPL and spawns sub-agents whose results
+never enter the caller's context. Requires Deno + a kernel-capable fast-rlm build.
+User-facing docs: `skills/recursive-language-model/SKILL.md`. Engine internals:
+`third_party/fast-rlm/CLAUDE.md`.
+
+### Executor / sandbox model (config under `rlm:` in `config.yaml`)
+
+The agent's generated Python runs in one of two **executors**:
+
+- `executor: pyodide` (default) — in-process WASM VM. Fully sandboxed, but only
+  pure-Python wheels (no pandas/numpy/C extensions).
+- `executor: subprocess` — out-of-process native-Python kernel
+  (`third_party/fast-rlm/python_kernel/kernel.py`) driven over a control channel.
+  Full native Python. Has two sandbox modes via `kernel_sandbox`:
+  - `local` — bare host subprocess, **UN-SANDBOXED**; requires
+    `executor_unsandboxed_ack: true`. Trusted input only.
+  - `docker` — kernel runs in a container over a **stdio** control channel; no ack
+    needed. `--network none` by default (the agent's code has no egress; `llm_query`/
+    MCP still work because they ride the stdio channel to the host).
+
+### `kernel_runtime` (docker mode) — host-OS-dependent boundary
+
+`buildDockerArgs` (`src/kernel_client.ts`) forwards **any non-`runc` runtime**
+generically as `--runtime <name>`, so the recognized values are:
+
+| value | boundary | host requirement |
+|---|---|---|
+| `runc` *(default)* | namespaces + cgroups | Docker |
+| `runsc` | gVisor user-space syscall interception | Linux + gVisor |
+| `kata` / `kata-fc` | microVM (hardware-VM; `-fc` = Firecracker backend) | Linux + `/dev/kvm` + Kata |
+
+**Preflight (Phase 4):** `preflightRuntime()` runs in `Kernel.start` before
+`docker run` for any non-`runc` runtime. An unregistered runtime, or a `kata*`
+runtime on a host without `/dev/kvm`, fails with a **single actionable error** — it
+**never silently downgrades** to a weaker boundary. True VM-level isolation needs a
+Linux/KVM host; it is **not native on macOS/Windows** (there, `docker` mode runs
+`runc` inside Docker Desktop's / WSL2's Linux VM).
+
+**Threading rule:** a new kernel config key must be plumbed
+`rlm_tool._RLM_CONFIG_DEFAULTS` → `_build_rlm_cfg` → `tools/rlm/_driver.py` →
+fast-rlm `RLMConfig` (`fast_rlm/_runner.py`) → `config.ts` → `kernel_client.ts`.
+`kernel_runtime` is **opaque to Hermes** — it's forwarded verbatim, so new runtimes
+need no Hermes change. The `kernel_sandbox: docker` guard requires the **local**
+Hermes backend (modal/daytona would need docker-in-docker — unsupported).
+
+Design, plan, and a Linux/KVM validation runbook live under `docs/rlm/`. The microVM
+e2e (`docker_launcher_test.ts`) **skips** off a Linux/KVM/Kata host.
 
 ---
 
