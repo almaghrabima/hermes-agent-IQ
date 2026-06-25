@@ -135,6 +135,7 @@ def test_driver_passes_kernel_kwargs(tmp_path):
             def run(query=None, instruction=None, input_file=None, config=None, verbose=True):
                 c = config
                 return {"results": {"executor": c.executor, "kernel_sandbox": c.kernel_sandbox,
+                                    "kernel_runtime": c.kernel_runtime,
                                     "kernel_image": c.kernel_image, "ack": c.executor_unsandboxed_ack},
                         "usage": {}, "log_file": "/tmp/r.jsonl"}
         '''), encoding="utf-8")
@@ -144,7 +145,7 @@ def test_driver_passes_kernel_kwargs(tmp_path):
         "context_path": None, "input_path": None, "max_global_calls": 5,
         "max_money_spent": None, "max_completion_tokens": None,
         "executor": "subprocess", "executor_unsandboxed_ack": False,
-        "kernel_sandbox": "docker", "kernel_runtime": "runc",
+        "kernel_sandbox": "docker", "kernel_runtime": "kata-fc",
         "kernel_image": "python:3.11-slim", "kernel_network": "none",
     }), encoding="utf-8")
     import subprocess, sys, json as _json
@@ -157,6 +158,7 @@ def test_driver_passes_kernel_kwargs(tmp_path):
     out = _json.loads(proc.stdout.strip().splitlines()[-1])
     assert out["result"]["executor"] == "subprocess"
     assert out["result"]["kernel_sandbox"] == "docker"
+    assert out["result"]["kernel_runtime"] == "kata-fc"  # microVM runtime forwarded verbatim
     assert out["result"]["kernel_image"] == "python:3.11-slim"
 
 
