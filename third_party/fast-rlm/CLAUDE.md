@@ -32,6 +32,34 @@ Sub-agents are spawned when the agent's REPL code calls `await llm_query(ctx, sc
 
 A correctness/cost feature (`enable_compression_guard`, default on). When an agent delegates a large, barely-compressed slice of its own context (`childChars >= compression_ratio * parentChars` and `parentChars >= compression_min_chars`), the child must **self-confirm** (a YES/NO LLM call with the same model) before running; a NO throws `DELEGATION_REJECTED` and forces the caller to slice/summarize in its own REPL first. `batch_llm_query` does this once for the whole fan-out. Implemented via `confirmDelegation` in `call_llm.ts`.
 
+## Executors (Phase 1)
+
+fast-rlm has two executors for the agent's generated Python code. The executor is selected with the `executor` config key in `rlm_config.yaml` / `RLMConfig` / the temp config file, and defaults to `"pyodide"`.
+
+### `pyodide` (default)
+
+Runs the agent's code in an in-process WASM VM (Pyodide loaded into the Deno engine). Fully sandboxed: no real sockets, no filesystem access, no subprocess. `requests`/`httpx` are patched to route through Deno's fetch. Only pure-Python wheels can be installed (no native extensions — no pandas, no numpy, no C-backed libraries). This is the safe choice for any multi-tenant or untrusted-agent scenario.
+
+### `subprocess`
+
+Spawns an out-of-process **native-Python kernel** (`python_kernel/kernel.py`) that the Deno engine drives over a UNIX socket (TCP loopback on Windows). The kernel is a persistent native-Python REPL: full Python — pandas, numpy, and any package installed in the target interpreter all work. The Deno engine side (`src/kernel_client.ts`) owns the lifecycle: it spawns the kernel process, forwards `run_step` requests, and routes mid-step callbacks (`llm_query`, `batch_confirm`, `mcp_call`, `mcp_read_resource`) back to the same host handlers the pyodide path uses, so fast-rlm's recursive sub-agent machinery works identically either way.
+
+The interpreter used by the kernel is chosen by the `RLM_KERNEL_PYTHON` environment variable (default: `python3`). Point it at any Python that has the libraries the agent code needs.
+
+> **Phase-1 security caveat — read before enabling.**
+>
+> The `subprocess` executor is **UN-SANDBOXED**: the kernel process has full access to the host — real network, real filesystem, real subprocess. It is therefore **off by default** and refuses to start unless `executor_unsandboxed_ack: true` is also set in config. Do **not** enable it for untrusted agent code in production. Phase 2 will run the kernel inside a container/gVisor sandbox; until then, treat `subprocess` as **trusted-input-only**.
+
+### Config reference
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `executor` | `"pyodide" \| "subprocess"` | `"pyodide"` | Selects the code executor |
+| `executor_unsandboxed_ack` | `bool` | `false` | Must be `true` to start the `subprocess` executor |
+| `RLM_KERNEL_PYTHON` (env) | path/name | `python3` | Python interpreter for the kernel process |
+
+The `subprocess` executor also requires the Deno process to have `--allow-run` (to spawn the kernel) and `--allow-write` (for the UNIX socket). `_runner.py` grants `--allow-run` automatically when `executor: subprocess` is configured.
+
 ## Backends (`src/call_llm.ts` dispatch)
 
 The `primary_agent`/`sub_agent` string selects the backend by prefix. `primary_agent` is **required and has no default** — `run()` and the engine both raise if it is unset; `sub_agent` falls back to `primary_agent`.
