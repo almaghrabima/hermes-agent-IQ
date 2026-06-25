@@ -104,3 +104,13 @@ rlm:
    support. Set `rlm.engine_path` to a kernel-capable checkout (the NousResearch
    fork) to enable these keys. If the installed build lacks kernel support, the
    driver errors with a message mentioning "kernel support" / "engine_path".
+
+3. **Boundary strength depends on the host OS.** Strong VM-level isolation needs a
+   **Linux host with `/dev/kvm`** — it is *not* native on macOS or Windows. Today
+   only `runc` (namespaces+cgroups) and `runsc` (gVisor, **Linux-only**) are
+   implemented; `kernel_runtime: runsc` fails with Docker's "unknown runtime" error
+   off Linux. On **macOS**, `kernel_sandbox: docker` runs `runc` inside Docker
+   Desktop's shared Linux VM (no gVisor, no per-exec microVM); on **Windows**, prefer
+   running the Linux stack under WSL2. For the full per-OS matrix and the proposed
+   Firecracker/Kata microVM backend, see
+   `docs/rlm/2026-06-25-fast-rlm-kernel-phase4-per-os-boundaries-design.md`.
