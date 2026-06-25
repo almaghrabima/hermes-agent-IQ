@@ -305,3 +305,28 @@ def test_rlm_tool_allows_docker_kernel_on_local_backend(monkeypatch):
                         lambda *a, **k: {"result": "ok", "usage": {}, "log_path": "/l"})
     out = __import__("json").loads(rlm_tool.rlm_tool(query="q", task_id="t"))
     assert out["status"] == "success"  # local backend → no guard error
+
+
+def test_build_cfg_forwards_microvm_kernel_runtime_verbatim():
+    # kernel_runtime is opaque to Hermes — a microVM value must pass through unchanged
+    # (the engine preflights it). Guards against accidental filtering/allow-listing here.
+    creds = rlm_tool.RlmCreds(base_url="b", api_key="k", primary_agent="p", sub_agent="s")
+    rlm_cfg = dict(rlm_tool._RLM_CONFIG_DEFAULTS)
+    rlm_cfg.update({"executor": "subprocess", "kernel_sandbox": "docker", "kernel_runtime": "kata-fc"})
+    cfg = rlm_tool._build_rlm_cfg("q", creds, rlm_cfg, context_path=None, input_path=None)
+    assert cfg["kernel_runtime"] == "kata-fc"
+
+
+def test_rlm_tool_blocks_docker_microvm_kernel_on_nonlocal_backend(monkeypatch):
+    # The docker→local-backend guard is runtime-agnostic: it must fire for microVM
+    # runtimes too, not just runc/runsc.
+    # Use a non-local, non-cloud backend ("docker") so the docker-kernel guard is
+    # what fires — a cloud backend (modal/daytona) would trip the remote-backend
+    # guard first.
+    cfg = dict(rlm_tool._RLM_CONFIG_DEFAULTS)
+    cfg["kernel_sandbox"] = "docker"; cfg["kernel_runtime"] = "kata-fc"
+    monkeypatch.setattr(rlm_tool, "_load_rlm_config", lambda: cfg)
+    monkeypatch.setattr(rlm_tool, "_get_or_create_env", lambda task_id: (object(), "ssh"))
+    out = __import__("json").loads(rlm_tool.rlm_tool(query="q", task_id="t"))
+    assert out["status"] == "error"
+    assert "local Hermes backend" in out["error"]

@@ -61,9 +61,9 @@ Deno/TypeScript (engine), Python 3.11 stdlib (Hermes `rlm_tool` + driver), Docke
 
 **Files:** `tools/rlm_tool.py`, `tools/rlm/_driver.py`, `tests/tools/test_rlm_tool.py`, `tests/tools/test_rlm_driver.py`
 
-- [ ] **Step 1 (failing test):** assert `_build_rlm_cfg` forwards `kernel_runtime: kata-fc` verbatim, and that `kernel_sandbox: docker` + a non-local backend still errors (existing guard covers all runtimes).
-- [ ] **Step 2:** confirm no code change is needed (the value is opaque to Hermes); fix only if a test reveals filtering.
-- [ ] **Step 3:** run `scripts/run_tests.sh tests/tools/test_rlm_tool.py tests/tools/test_rlm_driver.py`.
+- [x] **Step 1 (failing test):** assert `_build_rlm_cfg` forwards `kernel_runtime: kata-fc` verbatim, and that `kernel_sandbox: docker` + a non-local backend still errors (existing guard covers all runtimes). *(Done: passthrough test + runtime-agnostic guard test; driver test now asserts `kata-fc` round-trips to `RLMConfig`. Note: the guard test must use a non-cloud backend like `ssh`/`docker` — a cloud backend trips the remote-backend guard first.)*
+- [x] **Step 2:** confirm no code change is needed (the value is opaque to Hermes); fix only if a test reveals filtering. *(Confirmed: `_build_rlm_cfg` forwards `kernel_runtime` verbatim and the docker→local-backend guard is runtime-agnostic. No production change.)*
+- [x] **Step 3:** run `scripts/run_tests.sh tests/tools/test_rlm_tool.py tests/tools/test_rlm_driver.py`. *(Done: 31/31 pass.)*
 
 ## Task 4: KVM-gated microVM e2e
 
