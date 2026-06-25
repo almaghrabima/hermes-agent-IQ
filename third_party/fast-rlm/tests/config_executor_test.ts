@@ -19,3 +19,14 @@ Deno.test("config parses kernel sandbox keys", () => {
   assertEquals(cfg.kernel_image, "python:3.11-slim");
   assertEquals(cfg.kernel_network, "none");
 });
+
+Deno.test("config accepts microVM kernel_runtime values (kata-fc)", () => {
+  // kernel_runtime is intentionally a free-form string so new runtimes need no
+  // engine release; this guards against a future schema tightening silently
+  // rejecting microVM runtimes.
+  const cfg = parseYaml(
+    "kernel_sandbox: docker\nkernel_runtime: kata-fc\nkernel_network: none\n",
+  ) as RlmConfig;
+  assertEquals(cfg.kernel_sandbox, "docker");
+  assertEquals(cfg.kernel_runtime, "kata-fc");
+});

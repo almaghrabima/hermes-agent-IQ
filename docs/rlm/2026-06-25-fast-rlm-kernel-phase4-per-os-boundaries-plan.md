@@ -53,9 +53,9 @@ Deno/TypeScript (engine), Python 3.11 stdlib (Hermes `rlm_tool` + driver), Docke
 
 **Files:** Modify `src/config.ts`, `rlm_config.yaml`, `fast_rlm/_runner.py`
 
-- [ ] **Step 1:** keep `kernel_runtime` a free-form string (so new runtimes need no engine release) but update inline comments + the `config.ts` known-values hint to list `runc | runsc | kata | kata-fc`.
-- [ ] **Step 2:** ensure `_runner.py` still grants `--allow-run` for `executor: subprocess` (covers the new runtimes — no change expected; add an assertion test if missing).
-- [ ] **Step 3:** add a `config_executor_test.ts` case parsing `kernel_runtime: kata-fc`.
+- [x] **Step 1:** keep `kernel_runtime` a free-form string (so new runtimes need no engine release) but update inline comments + the `config.ts` known-values hint to list `runc | runsc | kata | kata-fc`. *(Done: `config.ts` + `rlm_config.yaml` comments updated.)*
+- [x] **Step 2:** ensure `_runner.py` still grants `--allow-run` for `executor: subprocess` (covers the new runtimes — no change expected; add an assertion test if missing). *(Verified: the grant at `_runner.py:353` is keyed on `executor == "subprocess"`, runtime-agnostic, so it already covers `kata`/`kata-fc`. No code change. fast-rlm has no pytest suite by design, so the Deno config test in Step 3 is the test layer.)*
+- [x] **Step 3:** add a `config_executor_test.ts` case parsing `kernel_runtime: kata-fc`. *(Done: regression-guard test; 3/3 config tests pass.)*
 
 ## Task 3: Hermes passthrough + guard
 

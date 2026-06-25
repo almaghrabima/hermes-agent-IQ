@@ -22,6 +22,6 @@ executor: pyodide
 executor_unsandboxed_ack: false
 # Phase-2 kernel sandbox (executor: subprocess only).
 kernel_sandbox: local        # local (Phase 1 bare subprocess) | docker (containerized)
-kernel_runtime: runc         # runc | runsc (gVisor; Linux host with runsc only)
+kernel_runtime: runc         # runc | runsc (gVisor; Linux+runsc) | kata | kata-fc (microVM; Linux+KVM only; preflighted)
 kernel_image: python:3.11-slim
 kernel_network: none         # none (no agent egress) | bridge
