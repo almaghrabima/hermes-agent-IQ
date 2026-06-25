@@ -10,6 +10,21 @@ export interface KernelStartOpts {
   python: string;
   kernelPath: string;
   handlers: Record<string, HostHandler>;
+  sandbox?: "local" | "docker";
+  runtime?: string;   // "runc" (default) | "runsc"
+  image?: string;     // default python:3.11-slim
+  network?: string;   // "none" (default) | "bridge"
+}
+
+export function buildDockerArgs(opts: {
+  kernelPath: string; image: string; runtime: string; network: string; name: string;
+}): string[] {
+  const args = ["run", "--rm", "-i", "--network", opts.network, "--name", opts.name];
+  if (opts.runtime && opts.runtime !== "runc") {
+    args.push("--runtime", opts.runtime);   // gVisor: runsc. runc is Docker's default → omit.
+  }
+  args.push("-v", `${opts.kernelPath}:/kernel.py:ro`, opts.image, "python", "/kernel.py", "--stdio");
+  return args;
 }
 
 export interface Transport {
@@ -57,6 +72,34 @@ class ConnTransport implements Transport {
   }
 }
 
+/** Transport over a child process's stdout(read)/stdin(write) — used for docker -i. */
+class ProcStdioTransport implements Transport {
+  #proc: Deno.ChildProcess;
+  #reader: ReadableStreamDefaultReader<Uint8Array>;
+  #writer: WritableStreamDefaultWriter<Uint8Array>;
+
+  constructor(proc: Deno.ChildProcess) {
+    this.#proc = proc;
+    this.#reader = proc.stdout.getReader();
+    this.#writer = proc.stdin.getWriter();
+  }
+
+  async readChunk(): Promise<Uint8Array | null> {
+    const { value, done } = await this.#reader.read();
+    return done ? null : (value ?? new Uint8Array(0));
+  }
+
+  async write(bytes: Uint8Array): Promise<void> {
+    await this.#writer.write(bytes);
+  }
+
+  close(): void {
+    try { this.#reader.cancel(); } catch { /* ignore */ }
+    try { this.#writer.close(); } catch { /* ignore */ }
+    try { this.#proc.kill(); } catch { /* ignore */ }
+  }
+}
+
 export interface StepResult {
   stdout: string;
   error: string;
@@ -89,6 +132,24 @@ export class Kernel {
   }
 
   static async start(opts: KernelStartOpts): Promise<Kernel> {
+    if ((opts.sandbox ?? "local") === "docker") {
+      const name = `rlm-kernel-${Math.abs(Date.now() ^ (Math.floor(performance.now() * 1000)))}`;
+      const args = buildDockerArgs({
+        kernelPath: opts.kernelPath,
+        image: opts.image ?? "python:3.11-slim",
+        runtime: opts.runtime ?? "runc",
+        network: opts.network ?? "none",
+        name,
+      });
+      let proc: Deno.ChildProcess;
+      try {
+        proc = new Deno.Command("docker", { args, stdin: "piped", stdout: "piped", stderr: "inherit" }).spawn();
+      } catch (e) {
+        throw new Error("Docker is required for kernel_sandbox: docker (is the daemon running?): " + (e as Error).message);
+      }
+      return new Kernel(new ProcStdioTransport(proc), opts.handlers);
+    }
+    // local (Phase 1)
     const socketPath = `${Deno.makeTempDirSync()}/rlm-kernel.sock`;
     const listener = Deno.listen({ transport: "unix", path: socketPath });
     const proc = new Deno.Command(opts.python, {
@@ -96,8 +157,7 @@ export class Kernel {
       stdout: "inherit", stderr: "inherit",
     }).spawn();
     const conn = await listener.accept();
-    const transport = new ConnTransport(conn, { listener, socketPath, proc });
-    return new Kernel(transport, opts.handlers);
+    return new Kernel(new ConnTransport(conn, { listener, socketPath, proc }), opts.handlers);
   }
 
   #send(frame: Frame): Promise<void> {
