@@ -1,7 +1,7 @@
 # plugins/temporal/activities.py
 from __future__ import annotations
 import json
-from typing import Any, Callable
+from typing import Callable
 
 
 def _delegate_handler() -> Callable:
@@ -26,10 +26,11 @@ def execute_durable_step(step: dict) -> dict:
 
 # Temporal activity wrapper — imported lazily so non-temporal runs never import temporalio.
 def _make_activity():
+    import asyncio
     from temporalio import activity  # type: ignore
 
     @activity.defn(name="run_step")
     async def run_step_activity(step: dict) -> dict:
-        return execute_durable_step(step)
+        return await asyncio.to_thread(execute_durable_step, step)
 
     return run_step_activity
