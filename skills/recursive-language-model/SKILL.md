@@ -82,4 +82,25 @@ rlm:
   timeout_seconds: 600
   allow_remote_backends: false
   engine_path: null            # abs path to a fast-rlm checkout to use instead of PyPI
+
+  # Kernel / executor settings (Phases 1-3; see caveats below)
+  executor: pyodide            # null/"pyodide" (default, Deno/WASM) | "subprocess" (native kernel)
+  executor_unsandboxed_ack: false  # set true only when executor=subprocess + kernel_sandbox=local
+  kernel_sandbox: null         # null/"local" | "docker" (run kernel in a container)
+  kernel_runtime: runc         # "runc" (default) | "runsc" (gVisor; Linux only)
+  kernel_image: python:3.11-slim   # container image for the agent's libraries
+  kernel_network: none         # "none" (no agent egress; llm_query still works) | "bridge"
 ```
+
+### Kernel caveats
+
+1. **Local backend required for `kernel_sandbox: docker`.** Running the kernel
+   container requires Docker access on the host. Remote backends (modal/daytona)
+   would need docker-in-docker, which is not yet supported — the tool will error
+   if you combine `kernel_sandbox: docker` with a remote backend.
+
+2. **Kernel features require the fork build of fast-rlm.** The default auto-install
+   pulls stock `fast-rlm==0.2.4` from PyPI, which does **not** include kernel
+   support. Set `rlm.engine_path` to a kernel-capable checkout (the NousResearch
+   fork) to enable these keys. If the installed build lacks kernel support, the
+   driver errors with a message mentioning "kernel support" / "engine_path".
