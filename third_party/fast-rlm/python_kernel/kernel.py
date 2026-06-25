@@ -82,32 +82,12 @@ class Kernel:
         self.G[fn.__name__] = fn
         self.G.setdefault("__tools__", []).append(fn)
 
-    async def _pump_responses(self) -> None:
-        """Read resp frames and resolve pending futures until no more are pending."""
-        while self.pending:
-            try:
-                frame = await self._read_frame()
-            except (asyncio.IncompleteReadError, ConnectionError):
-                break
-            if frame.get("kind") == "resp":
-                fut = self.pending.pop(frame.get("id"), None)
-                if fut and not fut.done():
-                    err = frame.get("error")
-                    if err is not None:
-                        fut.set_exception(RuntimeError(err))
-                    else:
-                        fut.set_result(frame.get("result"))
-
     async def host_call(self, op: str, payload: dict):
         fut = asyncio.get_event_loop().create_future()
         mid = self._next_id
         self._next_id += 2  # odd ids only
         self.pending[mid] = fut
         await self._send({"kind": "req", "op": op, "id": mid, **payload})
-        # Start a background reader if serve() is not running (e.g. in tests).
-        # serve() sets _serving=True before its loop, preventing a duplicate pump.
-        if not getattr(self, "_serving", False):
-            asyncio.ensure_future(self._pump_responses())
         return await fut
 
     def _inject_bridge(self) -> None:
@@ -166,7 +146,6 @@ class Kernel:
         await self._send({"kind": "resp", "id": rid, **resp})
 
     async def serve(self) -> None:
-        self._serving = True
         self._inject_bridge()
         while True:
             try:

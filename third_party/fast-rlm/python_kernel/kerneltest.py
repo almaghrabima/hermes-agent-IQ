@@ -63,28 +63,58 @@ async def test_register_tool_and_error():
     check("exception in error field", "ValueError" in rerr["error"])
 
 
+async def _send_frame(writer, frame):
+    body = K.json.dumps(frame).encode()
+    writer.write(K.struct.pack(">I", len(body)) + body)
+    await writer.drain()
+
+
+async def _recv_frame(reader):
+    hdr = await asyncio.wait_for(reader.readexactly(4), timeout=10)
+    (n,) = K.struct.unpack(">I", hdr)
+    body = await asyncio.wait_for(reader.readexactly(n), timeout=10)
+    return K.json.loads(body.decode())
+
+
 async def test_host_bridge_llm_query():
+    # Drive the kernel through serve() — the real production path:
+    # serve() reads host requests, dispatches them via ensure_future, and a
+    # run_step's `await __js_llm_query__(...)` issues a kernel->host req whose
+    # resp serve() must read concurrently while run_step is still suspended.
     (ra, wa), (rb, wb) = await _pair()
     k = K.Kernel(ra, wa)
-    k._inject_bridge()
-    await _setup(k, "def FINAL(x):\n globals()['__final_result__']=x\n globals()['__final_result_set__']=True\n")
+    serve_task = asyncio.ensure_future(k.serve())
 
-    # Fake host: answer one llm_query req with a canned result.
-    async def fake_host():
-        # read the kernel's req frame
-        hdr = await rb.readexactly(4)
-        (n,) = K.struct.unpack(">I", hdr)
-        req = K.json.loads((await rb.readexactly(n)).decode())
-        assert req["op"] == "llm_query", req
-        resp = {"kind": "resp", "id": req["id"], "result": {"ok": True, "echo": req["context"]}}
-        wb.write(K.struct.pack(">I", len(K.json.dumps(resp).encode())) + K.json.dumps(resp).encode())
-        await wb.drain()
+    # Host (other socket end rb/wb) registers FINAL via a setup req.
+    await _send_frame(wb, {"kind": "req", "op": "setup", "id": 2, "code": _FINAL_DEF})
+    setup_resp = await _recv_frame(rb)
+    check("setup ack via serve", setup_resp.get("ok") is True)
 
-    host_task = asyncio.ensure_future(fake_host())
-    # run_step does `await llm_query("hello")` and stores the result
-    r = await k.run_step("res = await __js_llm_query__('hello')\nprint(res['echo'])")
-    await host_task
-    check("llm_query bridged result", "hello" in r["stdout"])
+    # Host asks the kernel to run a step that calls __js_llm_query__.
+    await _send_frame(wb, {"kind": "req", "op": "run_step", "id": 4,
+                           "code": "res = await __js_llm_query__('hello')\nprint(res['echo'])"})
+
+    # While run_step is suspended on the host call, serve() keeps reading: the
+    # next frame from the kernel is its llm_query REQ (odd id). (Defer check()
+    # until after the run_step resp arrives — while run_step is mid-flight the
+    # kernel has stdout redirected, which would swallow these prints.)
+    kreq = await _recv_frame(rb)
+    kreq_ok = kreq.get("op") == "llm_query" and kreq.get("context") == "hello"
+    kreq_odd = isinstance(kreq.get("id"), int) and kreq["id"] % 2 == 1
+    await _send_frame(wb, {"kind": "resp", "id": kreq["id"], "result": {"echo": "hello"}})
+
+    # Now the run_step completes and its resp (id 4) carries stdout.
+    run_resp = await _recv_frame(rb)
+    check("kernel issued llm_query req", kreq_ok)
+    check("kernel used odd id", kreq_odd)
+    check("run_step resp id matches", run_resp.get("id") == 4)
+    check("llm_query bridged via serve", "hello" in run_resp.get("stdout", ""))
+
+    # Shut down: kernel replies then closes; serve() returns.
+    await _send_frame(wb, {"kind": "req", "op": "shutdown", "id": 6})
+    shut_resp = await _recv_frame(rb)
+    check("shutdown ack", shut_resp.get("ok") is True)
+    await asyncio.wait_for(serve_task, timeout=10)
     wb.close()
 
 
