@@ -62,7 +62,7 @@ export interface RlmConfig {
     executor_unsandboxed_ack?: boolean;
     // Phase-2 kernel sandbox (only used when executor === "subprocess").
     kernel_sandbox?: "local" | "docker";   // default "local"
-    kernel_runtime?: string;               // "runc" (default) | "runsc" (gVisor, Linux-only)
+    kernel_runtime?: string;               // "runc" (default) | "runsc" (gVisor, Linux-only) | "kata"/"kata-fc" (microVM; Linux+KVM, preflighted)
     kernel_image?: string;                 // default "python:3.11-slim"
     kernel_network?: string;               // "none" (default) | "bridge"
 }
