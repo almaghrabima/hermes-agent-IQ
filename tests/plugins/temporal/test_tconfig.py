@@ -1,6 +1,6 @@
 from plugins.temporal.tconfig import resolve_temporal_config
 
-def test_defaults_to_dev_server_disabled():
+def test_defaults_enable_dev_server():
     s = resolve_temporal_config(config={}, env={})
     assert s.enabled is False
     assert s.target == "localhost:7233"
@@ -9,6 +9,7 @@ def test_defaults_to_dev_server_disabled():
     assert s.dev_server is True
     assert s.task_queue == "hermes"
 
+
 def test_cloud_config_with_api_key_from_env():
     cfg = {"temporal": {"enabled": True, "target": "ns.acct.tmprl.cloud:7233",
                          "namespace": "ns.acct", "tls": True}}
@@ -16,7 +17,8 @@ def test_cloud_config_with_api_key_from_env():
     assert s.enabled is True
     assert s.tls is True
     assert s.api_key == "sek"
-    assert s.target.endswith(":7233")
+    assert s.target == "ns.acct.tmprl.cloud:7233"
+
 
 def test_retry_and_timeout_defaults_overridable():
     cfg = {"temporal": {"step_timeout_seconds": 120,
