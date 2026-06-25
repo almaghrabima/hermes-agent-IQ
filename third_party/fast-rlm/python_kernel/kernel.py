@@ -84,7 +84,7 @@ class Kernel:
         self.G.setdefault("__tools__", []).append(fn)
 
     async def host_call(self, op: str, payload: dict):
-        fut = asyncio.get_event_loop().create_future()
+        fut = asyncio.get_running_loop().create_future()
         mid = self._next_id
         self._next_id += 2  # odd ids only
         self.pending[mid] = fut
@@ -182,7 +182,7 @@ async def _amain(socket_path, tcp, stdio) -> None:
         # Bind the control channel to the REAL fd 1 first, then send all Python
         # stdout to stderr so only framed control bytes ever reach fd 1.
         real_stdout = sys.stdout.buffer
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         reader = asyncio.StreamReader()
         await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin.buffer)
         w_transport, w_proto = await loop.connect_write_pipe(asyncio.streams.FlowControlMixin, real_stdout)
