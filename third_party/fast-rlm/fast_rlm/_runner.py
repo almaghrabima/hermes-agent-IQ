@@ -342,6 +342,13 @@ def run(
     if any(a.startswith("acp:") for a in _agents):
         cmd.append("--allow-run")
 
+    # The subprocess executor spawns the out-of-process Python kernel
+    # (python_kernel/kernel.py) as a child process, so the Deno host needs
+    # --allow-run. (--allow-write, already granted above, covers the UNIX
+    # socket the kernel connects to.)
+    if merged_config.get("executor") == "subprocess" and "--allow-run" not in cmd:
+        cmd.append("--allow-run")
+
     cmd += [
         "src/subagents.ts",
         "--log-dir",
