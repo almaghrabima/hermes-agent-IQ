@@ -112,16 +112,18 @@ const ROOT_INSTRUCTION = _config.instruction ?? null;
 const EXECUTOR: "pyodide" | "subprocess" = _config.executor ?? "pyodide";
 
 /**
- * Phase-1 safety gate: the subprocess executor runs UN-SANDBOXED native Python.
+ * Phase-2 safety gate: the subprocess executor with kernel_sandbox: local runs
+ * UN-SANDBOXED native Python. Docker-sandboxed kernels need no ack.
  * Pure and exported so it is testable without spinning the whole engine.
  */
 export function assertSubprocessAllowed(
-    cfg: Pick<RlmConfig, "executor" | "executor_unsandboxed_ack">,
+    cfg: Pick<RlmConfig, "executor" | "executor_unsandboxed_ack" | "kernel_sandbox">,
 ): void {
-    if (cfg.executor === "subprocess" && !cfg.executor_unsandboxed_ack) {
+    const sandbox = cfg.kernel_sandbox ?? "local";
+    if (cfg.executor === "subprocess" && sandbox === "local" && !cfg.executor_unsandboxed_ack) {
         throw new Error(
-            "executor: subprocess runs UN-SANDBOXED native Python (Phase 1). " +
-            "Set executor_unsandboxed_ack: true to acknowledge, or use executor: pyodide.",
+            "executor: subprocess with kernel_sandbox: local runs UN-SANDBOXED native Python. " +
+                "Set executor_unsandboxed_ack: true, use kernel_sandbox: docker, or use executor: pyodide.",
         );
     }
 }
@@ -645,6 +647,10 @@ _aio_guard.gather = _guarded_gather
             python: Deno.env.get("RLM_KERNEL_PYTHON") ?? "python3",
             kernelPath: new URL("../python_kernel/kernel.py", import.meta.url).pathname,
             handlers: hostHandlers,
+            sandbox: _config.kernel_sandbox ?? "local",
+            runtime: _config.kernel_runtime ?? "runc",
+            image: _config.kernel_image ?? "python:3.11-slim",
+            network: _config.kernel_network ?? "none",
         });
         await kernel.setup(setup_code);
     } else {
