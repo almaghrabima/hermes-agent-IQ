@@ -94,6 +94,10 @@ class RLMConfig:
     # unless executor_unsandboxed_ack is True.
     executor: Optional[str] = None
     executor_unsandboxed_ack: bool = False
+    kernel_sandbox: Optional[str] = None
+    kernel_runtime: Optional[str] = None
+    kernel_image: Optional[str] = None
+    kernel_network: Optional[str] = None
 
     @classmethod
     def default(cls) -> "RLMConfig":

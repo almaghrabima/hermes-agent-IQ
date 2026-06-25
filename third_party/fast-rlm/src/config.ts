@@ -60,6 +60,11 @@ export interface RlmConfig {
     // unless executor_unsandboxed_ack is true.
     executor?: "pyodide" | "subprocess";
     executor_unsandboxed_ack?: boolean;
+    // Phase-2 kernel sandbox (only used when executor === "subprocess").
+    kernel_sandbox?: "local" | "docker";   // default "local"
+    kernel_runtime?: string;               // "runc" (default) | "runsc" (gVisor, Linux-only)
+    kernel_image?: string;                 // default "python:3.11-slim"
+    kernel_network?: string;               // "none" (default) | "bridge"
 }
 
 export function loadConfig(): RlmConfig {
