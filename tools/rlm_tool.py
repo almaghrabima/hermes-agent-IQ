@@ -32,6 +32,12 @@ _RLM_CONFIG_DEFAULTS = {
     "timeout_seconds": 600,
     "allow_remote_backends": False,
     "engine_path": None,
+    "executor": None,
+    "executor_unsandboxed_ack": False,
+    "kernel_sandbox": None,
+    "kernel_runtime": None,
+    "kernel_image": None,
+    "kernel_network": None,
 }
 
 
@@ -182,6 +188,12 @@ def _build_rlm_cfg(query, creds: RlmCreds, rlm_cfg: dict, context_path, input_pa
         "max_global_calls": rlm_cfg.get("max_global_calls", 50),
         "max_money_spent": rlm_cfg.get("max_money_spent"),
         "max_completion_tokens": rlm_cfg.get("max_completion_tokens"),
+        "executor": rlm_cfg.get("executor"),
+        "executor_unsandboxed_ack": rlm_cfg.get("executor_unsandboxed_ack", False),
+        "kernel_sandbox": rlm_cfg.get("kernel_sandbox"),
+        "kernel_runtime": rlm_cfg.get("kernel_runtime"),
+        "kernel_image": rlm_cfg.get("kernel_image"),
+        "kernel_network": rlm_cfg.get("kernel_network"),
     }
 
 
@@ -230,6 +242,12 @@ def rlm_tool(query, context=None, input_path=None, primary_agent=None,
                 f"fast-rlm is disabled for the '{env_type}' cloud backend because your LLM "
                 "key would transit to that sandbox. Set rlm.allow_remote_backends: true in "
                 "config.yaml to allow it."
+            )
+        if rlm_cfg.get("kernel_sandbox") == "docker" and env_type != "local":
+            raise RlmError(
+                f"rlm.kernel_sandbox: docker requires the local Hermes backend, but the "
+                f"active backend is '{env_type}'. Running the kernel container from a remote "
+                "backend would require docker-in-docker, which is not supported yet."
             )
 
         creds = _resolve_rlm_credentials(rlm_cfg)
