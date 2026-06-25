@@ -9,9 +9,23 @@ This directory contains the out-of-process Python kernel used by the `subprocess
 | `kernel.py` | The kernel itself — self-contained, stdlib only |
 | `kerneltest.py` | Standalone stdlib test driver (no Deno required) |
 
+## Transports
+
+The kernel supports two control-channel transports, selected by a CLI flag when the kernel is launched:
+
+### `--socket` / `--tcp` (socket transport — Phase 1 / `kernel_sandbox: local`)
+
+The host (Deno) and kernel communicate over a **UNIX socket** (or TCP loopback on Windows). The host spawns the kernel as a subprocess, passes the socket path via a flag, and connects via `ConnTransport` (`src/kernel_client.ts`). This is the transport used when the kernel runs as a bare native process on the host.
+
+### `--stdio` (stdio transport — Phase 2 / `kernel_sandbox: docker`)
+
+Used when the kernel runs **inside a `docker run -i` container**. In `--stdio` mode the kernel captures the real file descriptor 1 at startup, then reassigns `sys.stdout` to `sys.stderr`. From that point on, all agent `print()` output is captured in-band (redirected to the captured fd-1 buffer) and never corrupts the framed control byte stream. Only length-prefixed JSON control frames reach the real stdout, which is what the Docker host reads. The Deno side uses `ProcStdioTransport` to read from and write to the container child's stdio pipes.
+
+This design means `llm_query` / MCP callbacks work identically in docker mode: the kernel sends callback frames over stdout to the host; the host (running outside the container) handles LLM/MCP calls and writes the response back over stdin. The container itself can have `--network none` without affecting the agent's ability to delegate.
+
 ## Wire protocol
 
-The host (Deno, `src/kernel_client.ts`) and kernel communicate over a UNIX socket (TCP loopback on Windows) using **length-prefixed JSON frames**:
+The host (Deno, `src/kernel_client.ts`) and kernel communicate using **length-prefixed JSON frames** over whichever transport is active:
 
 ```
 [ 4-byte big-endian uint32: payload length ][ UTF-8 JSON payload ]

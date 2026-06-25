@@ -30,6 +30,7 @@ class Kernel:
         self.pending: dict[int, asyncio.Future] = {}  # kernel->host request futures
         self._next_id = 1                # kernel owns ODD ids
         self._send_lock = asyncio.Lock()
+        self._shutdown_event = asyncio.Event()
 
     async def _send(self, frame: dict) -> None:
         async with self._send_lock:
@@ -83,7 +84,7 @@ class Kernel:
         self.G.setdefault("__tools__", []).append(fn)
 
     async def host_call(self, op: str, payload: dict):
-        fut = asyncio.get_event_loop().create_future()
+        fut = asyncio.get_running_loop().create_future()
         mid = self._next_id
         self._next_id += 2  # odd ids only
         self.pending[mid] = fut
@@ -138,6 +139,7 @@ class Kernel:
             elif op == "shutdown":
                 await self._send({"kind": "resp", "id": rid, "ok": True})
                 self.writer.close()
+                self._shutdown_event.set()
                 return
             else:
                 resp = {"error": f"unknown op {op}"}
@@ -164,23 +166,45 @@ class Kernel:
             # host request — dispatch concurrently so serve() keeps reading
             # (a run_step awaits host calls whose resp frames arrive here).
             asyncio.ensure_future(self._handle_request(frame))
+            if frame.get("op") == "shutdown":
+                # Wait for the shutdown handler to finish, then exit.
+                await self._shutdown_event.wait()
+                break
 
 
-async def _amain(socket_path: str | None, tcp: str | None) -> None:
-    if tcp:
+async def _serve_streams(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    await Kernel(reader, writer).serve()
+
+
+async def _amain(socket_path, tcp, stdio) -> None:
+    if stdio:
+        import sys
+        # Bind the control channel to the REAL fd 1 first, then send all Python
+        # stdout to stderr so only framed control bytes ever reach fd 1.
+        real_stdout = sys.stdout.buffer
+        loop = asyncio.get_running_loop()
+        reader = asyncio.StreamReader()
+        await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin.buffer)
+        w_transport, w_proto = await loop.connect_write_pipe(asyncio.streams.FlowControlMixin, real_stdout)
+        writer = asyncio.StreamWriter(w_transport, w_proto, reader, loop)
+        sys.stdout = sys.stderr  # stray prints can't corrupt the frame stream
+        await _serve_streams(reader, writer)
+    elif tcp:
         host, port = tcp.rsplit(":", 1)
         reader, writer = await asyncio.open_connection(host, int(port))
+        await _serve_streams(reader, writer)
     else:
         reader, writer = await asyncio.open_unix_connection(socket_path)
-    await Kernel(reader, writer).serve()
+        await _serve_streams(reader, writer)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--socket")
     ap.add_argument("--tcp")
+    ap.add_argument("--stdio", action="store_true")
     args = ap.parse_args()
-    asyncio.run(_amain(args.socket, args.tcp))
+    asyncio.run(_amain(args.socket, args.tcp, args.stdio))
 
 
 if __name__ == "__main__":
