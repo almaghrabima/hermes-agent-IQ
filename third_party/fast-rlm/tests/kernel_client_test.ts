@@ -19,6 +19,16 @@ Deno.test("kernel: state persistence + FINAL", async () => {
   await k.shutdown();
 });
 
+Deno.test("kernel: run_step with agent exception resolves (error is data, not a rejection)", async () => {
+  const k = await Kernel.start({ python: "python3", kernelPath: KERNEL, handlers: {} });
+  await k.setup("pass\n");
+  const r = await k.runStep("raise ValueError('boom')");   // must NOT throw
+  assert(r.error.includes("ValueError"));
+  assert(r.stdout.includes("boom"));
+  assertEquals(r.final_set, false);
+  await k.shutdown();
+});
+
 Deno.test("kernel: llm_query callback routes to host handler", async () => {
   let seen: unknown = null;
   const handlers = {

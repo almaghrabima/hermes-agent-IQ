@@ -113,8 +113,12 @@ export class Kernel {
       const p = this.#pending.get(frame.id);
       if (p) {
         this.#pending.delete(frame.id);
-        if (frame.error) p.reject(new Error(String(frame.error)));
-        else p.resolve(frame); // whole frame (run_step fields) or {result}
+        // The `error` field is overloaded: for setup/register_tool/reset_final
+        // it signals request failure, but for run_step it carries the agent's
+        // captured Python traceback as DATA. So the generic handler NEVER
+        // rejects on `error` — each typed method interprets it. (Transport
+        // failures are handled by the read loop ending / close().)
+        p.resolve(frame); // whole frame (run_step fields) or {result}
       }
       return;
     }
@@ -132,12 +136,16 @@ export class Kernel {
   }
 
   async setup(code: string): Promise<void> {
-    await this.#request("setup", { code });
+    const f = (await this.#request("setup", { code })) as Frame;
+    if (f.error) throw new Error(String(f.error));
   }
   async registerTool(src: string): Promise<void> {
-    await this.#request("register_tool", { src });
+    const f = (await this.#request("register_tool", { src })) as Frame;
+    if (f.error) throw new Error(String(f.error));
   }
   async runStep(code: string): Promise<StepResult> {
+    // NEVER throws: a non-empty `error` is the agent's captured traceback,
+    // which is normal RLM flow and returned to the caller as data.
     const f = (await this.#request("run_step", { code })) as Frame;
     return {
       stdout: String(f.stdout ?? ""),
@@ -148,7 +156,8 @@ export class Kernel {
     };
   }
   async resetFinal(): Promise<void> {
-    await this.#request("reset_final", {});
+    const f = (await this.#request("reset_final", {})) as Frame;
+    if (f.error) throw new Error(String(f.error));
   }
   async shutdown(): Promise<void> {
     try {
