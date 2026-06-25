@@ -38,6 +38,7 @@ export class Kernel {
   #nextId = 2; // host owns EVEN ids
   #buf = new Uint8Array(0);
   #closed = false;
+  #writeChain: Promise<void> = Promise.resolve();
 
   private constructor(
     conn: Deno.Conn,
@@ -66,8 +67,24 @@ export class Kernel {
     return new Kernel(conn, listener, proc, socketPath, opts.handlers);
   }
 
-  async #send(frame: Frame): Promise<void> {
-    await this.#conn.write(pack(frame));
+  // Serialize all writes through a single chain and fully flush each frame:
+  // Deno's conn.write() may write FEWER bytes than the buffer (partial write),
+  // and concurrent callers (batch fan-out fires multiple resp/req sends) would
+  // otherwise interleave bytes and corrupt frames. RLM frames get large.
+  #send(frame: Frame): Promise<void> {
+    const bytes = pack(frame);
+    const task = this.#writeChain.then(() => this.#writeAll(bytes));
+    this.#writeChain = task.catch(() => {}); // keep the chain alive past errors
+    return task;
+  }
+
+  async #writeAll(bytes: Uint8Array): Promise<void> {
+    let off = 0;
+    while (off < bytes.length) {
+      const n = await this.#conn.write(bytes.subarray(off));
+      if (n <= 0) throw new Error("kernel socket write returned " + n);
+      off += n;
+    }
   }
 
   #request(op: string, extra: Record<string, unknown>): Promise<unknown> {
@@ -170,6 +187,10 @@ export class Kernel {
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
+    // Reject any still-pending host requests so a kernel that dies mid-op
+    // doesn't hang callers forever.
+    for (const [, p] of this.#pending) p.reject(new Error("kernel connection closed"));
+    this.#pending.clear();
     try { this.#conn.close(); } catch { /* ignore */ }
     try { this.#listener.close(); } catch { /* ignore */ }
     try { this.#proc.kill(); } catch { /* ignore */ }

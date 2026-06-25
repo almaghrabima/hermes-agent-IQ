@@ -29,6 +29,14 @@ Deno.test("kernel: run_step with agent exception resolves (error is data, not a 
   await k.shutdown();
 });
 
+Deno.test("kernel: large frame round-trip (multi-chunk framing)", async () => {
+  const k = await Kernel.start({ python: "python3", kernelPath: KERNEL, handlers: {} });
+  await k.setup("big = 'x' * 200000\n");          // >64KB read chunk
+  const r = await k.runStep("print(len(big))");
+  assert(r.stdout.includes("200000"));
+  await k.shutdown();
+});
+
 Deno.test("kernel: llm_query callback routes to host handler", async () => {
   let seen: unknown = null;
   const handlers = {
