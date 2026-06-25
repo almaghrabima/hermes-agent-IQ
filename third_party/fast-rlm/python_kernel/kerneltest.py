@@ -128,11 +128,47 @@ async def test_non_serializable_final_sets_error():
     check("non-serializable final -> final_error populated", bool(r["final_error"]))
 
 
+async def test_stdio_mode_via_subprocess():
+    import os
+    import sys as _sys
+    here = os.path.dirname(__file__)
+    proc = await asyncio.create_subprocess_exec(
+        _sys.executable, os.path.join(here, "kernel.py"), "--stdio",
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+
+    def frame(obj):
+        import json as _j, struct as _s
+        b = _j.dumps(obj).encode()
+        return _s.pack(">I", len(b)) + b
+
+    async def recv():
+        import struct as _s, json as _j
+        hdr = await proc.stdout.readexactly(4)
+        (n,) = _s.unpack(">I", hdr)
+        return _j.loads((await proc.stdout.readexactly(n)).decode())
+
+    proc.stdin.write(frame({"kind": "req", "op": "setup", "id": 2, "code": _FINAL_DEF}))
+    await proc.stdin.drain()
+    await recv()  # setup ack
+    proc.stdin.write(frame({"kind": "req", "op": "run_step", "id": 4,
+                            "code": "v = 21 * 2\nprint(v)"}))
+    await proc.stdin.drain()
+    r = await recv()
+    check("stdio run_step stdout", "42" in r["stdout"])
+    proc.stdin.write(frame({"kind": "req", "op": "shutdown", "id": 6}))
+    await proc.stdin.drain()
+    await proc.wait()
+    check("stdio shutdown clean exit", proc.returncode == 0)
+
+
 async def main():
     await test_state_and_final()
     await test_register_tool_and_error()
     await test_host_bridge_llm_query()
     await test_non_serializable_final_sets_error()
+    await test_stdio_mode_via_subprocess()
     print(("FAILED: " + ", ".join(FAILURES)) if FAILURES else "ALL PASS")
     sys.exit(1 if FAILURES else 0)
 
