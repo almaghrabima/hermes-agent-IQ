@@ -29,9 +29,25 @@ def main() -> int:
             "primary_agent": cfg["primary_agent"],
             "sub_agent": cfg.get("sub_agent") or cfg["primary_agent"],
         }
-        for key in ("max_global_calls", "max_money_spent", "max_completion_tokens"):
+
+        import dataclasses, inspect
+        if dataclasses.is_dataclass(RLMConfig):
+            supported = {f.name for f in dataclasses.fields(RLMConfig)}
+        else:
+            supported = set(inspect.signature(RLMConfig).parameters)
+
+        requested_kernel = (cfg.get("executor") == "subprocess") or (cfg.get("kernel_sandbox") is not None)
+        if requested_kernel and not ({"executor", "kernel_sandbox"} <= supported):
+            raise RuntimeError(
+                "this fast-rlm build does not support executor/kernel_sandbox; point "
+                "rlm.engine_path at a fast-rlm with kernel support (Phases 1-2)."
+            )
+
+        for key in ("max_global_calls", "max_money_spent", "max_completion_tokens",
+                    "executor", "executor_unsandboxed_ack", "kernel_sandbox",
+                    "kernel_runtime", "kernel_image", "kernel_network"):
             value = cfg.get(key)
-            if value is not None:
+            if value is not None and key in supported:
                 cfg_kwargs[key] = value
         rlm_config = RLMConfig(**cfg_kwargs)
 
