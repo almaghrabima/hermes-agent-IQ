@@ -161,6 +161,7 @@ export class Kernel {
   }
 
   #send(frame: Frame): Promise<void> {
+    // Serialize frames through #writeChain: concurrent writers (batch fan-out) must not interleave bytes, and ConnTransport.write loops on partial writes.
     const bytes = pack(frame);
     const task = this.#writeChain.then(() => this.#transport.write(bytes));
     this.#writeChain = task.catch(() => {});
@@ -187,6 +188,7 @@ export class Kernel {
       this.#buf = merged;
       this.#drainFrames();
     }
+    this.close();   // settle any pending requests when the stream ends
   }
 
   #drainFrames(): void {

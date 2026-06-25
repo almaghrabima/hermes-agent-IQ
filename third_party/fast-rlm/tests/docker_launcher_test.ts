@@ -71,3 +71,23 @@ Deno.test("docker --network none blocks agent egress; control still works (skips
   assert(r2.stdout.includes("hi"));
   await k.shutdown();
 });
+
+Deno.test("docker bad image: setup rejects (no hang) (skips if no docker)", async () => {
+  if (!await dockerAvailable()) { console.log("SKIP: docker unavailable"); return; }
+  const KERNEL = new URL("../python_kernel/kernel.py", import.meta.url).pathname;
+  const k = await Kernel.start({
+    python: "python3", kernelPath: KERNEL, handlers: {},
+    sandbox: "docker", runtime: "runc", image: "nonexistent/rlm-bad-image-xyz:nope", network: "none",
+  });
+  let rejected = false;
+  try {
+    await Promise.race([
+      k.setup("pass\n"),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("TIMEOUT: setup hung")), 15000)),
+    ]);
+  } catch (e) {
+    rejected = true;
+    assert(!String((e as Error).message).includes("TIMEOUT"), "setup hung instead of rejecting");
+  } finally { k.close(); }
+  assert(rejected, "expected setup to reject on a bad image");
+});
