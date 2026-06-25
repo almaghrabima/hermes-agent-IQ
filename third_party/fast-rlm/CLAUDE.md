@@ -32,7 +32,7 @@ Sub-agents are spawned when the agent's REPL code calls `await llm_query(ctx, sc
 
 A correctness/cost feature (`enable_compression_guard`, default on). When an agent delegates a large, barely-compressed slice of its own context (`childChars >= compression_ratio * parentChars` and `parentChars >= compression_min_chars`), the child must **self-confirm** (a YES/NO LLM call with the same model) before running; a NO throws `DELEGATION_REJECTED` and forces the caller to slice/summarize in its own REPL first. `batch_llm_query` does this once for the whole fan-out. Implemented via `confirmDelegation` in `call_llm.ts`.
 
-## Executors (Phase 1)
+## Executors (Phase 1 + Phase 2)
 
 fast-rlm has two executors for the agent's generated Python code. The executor is selected with the `executor` config key in `rlm_config.yaml` / `RLMConfig` / the temp config file, and defaults to `"pyodide"`.
 
@@ -42,23 +42,52 @@ Runs the agent's code in an in-process WASM VM (Pyodide loaded into the Deno eng
 
 ### `subprocess`
 
-Spawns an out-of-process **native-Python kernel** (`python_kernel/kernel.py`) that the Deno engine drives over a UNIX socket (TCP loopback on Windows). The kernel is a persistent native-Python REPL: full Python — pandas, numpy, and any package installed in the target interpreter all work. The Deno engine side (`src/kernel_client.ts`) owns the lifecycle: it spawns the kernel process, forwards `run_step` requests, and routes mid-step callbacks (`llm_query`, `batch_confirm`, `mcp_call`, `mcp_read_resource`) back to the same host handlers the pyodide path uses, so fast-rlm's recursive sub-agent machinery works identically either way.
+Spawns an out-of-process **native-Python kernel** (`python_kernel/kernel.py`) that the Deno engine drives over a control channel. The kernel is a persistent native-Python REPL: full Python — pandas, numpy, and any package installed in the target interpreter all work. The Deno engine side (`src/kernel_client.ts`) owns the lifecycle: it spawns the kernel process, forwards `run_step` requests, and routes mid-step callbacks (`llm_query`, `batch_confirm`, `mcp_call`, `mcp_read_resource`) back to the same host handlers the pyodide path uses, so fast-rlm's recursive sub-agent machinery works identically either way.
+
+The `subprocess` executor has two **sandbox modes**, selected by `kernel_sandbox`:
+
+#### `kernel_sandbox: local` (Phase 1 — un-sandboxed)
+
+The kernel runs as a bare native subprocess on the host over a UNIX socket (TCP loopback on Windows). It has full access to the host — real network, real filesystem, real subprocess. This mode requires `executor_unsandboxed_ack: true` to start. Do **not** use it for untrusted agent code in production.
+
+> **Security caveat (`kernel_sandbox: local`):** The kernel process is UN-SANDBOXED. Treat this mode as trusted-input-only.
 
 The interpreter used by the kernel is chosen by the `RLM_KERNEL_PYTHON` environment variable (default: `python3`). Point it at any Python that has the libraries the agent code needs.
 
-> **Phase-1 security caveat — read before enabling.**
->
-> The `subprocess` executor is **UN-SANDBOXED**: the kernel process has full access to the host — real network, real filesystem, real subprocess. It is therefore **off by default** and refuses to start unless `executor_unsandboxed_ack: true` is also set in config. Do **not** enable it for untrusted agent code in production. Phase 2 will run the kernel inside a container/gVisor sandbox; until then, treat `subprocess` as **trusted-input-only**.
+#### `kernel_sandbox: docker` (Phase 2 — container-sandboxed)
+
+The kernel runs **inside a Docker container**, driven over a **stdio control channel** (the kernel's `--stdio` mode). No `executor_unsandboxed_ack` is required because the kernel is sandboxed inside the container. The Deno side uses `ProcStdioTransport` to communicate with the kernel child process.
+
+The effective `docker run` command is:
+
+```
+docker run --rm -i [--runtime <kernel_runtime>] --network <kernel_network> \
+  -v <kernel.py>:/kernel.py:ro <kernel_image> python /kernel.py --stdio
+```
+
+`kernel.py` is bind-mounted into the container read-only — no image rebuild is needed when the kernel source changes.
+
+**Sub-keys for `docker` mode:**
+
+| Key | Default | Notes |
+|---|---|---|
+| `kernel_runtime` | *(Docker default — `runc`)* | Set to `runsc` for **gVisor** syscall-level isolation. **Linux hosts with gVisor only** — not available on macOS/Docker Desktop. Selecting `runsc` on a host without gVisor fails with Docker's "unknown runtime" error. |
+| `kernel_image` | `python:3.11-slim` | The container image. The kernel itself is stdlib-only and works with any Python 3.8+ image. **The agent's code runs here too**, so use a richer image (e.g. one with pandas/numpy pre-installed) if the agent needs those libraries. |
+| `kernel_network` | `none` | The Docker network mode. Default `none` means the agent's code has **no network egress**. `llm_query`/MCP calls still work because they ride the stdio control channel to the host — the host makes the LLM/MCP calls, not the container. Set to `bridge` if the agent code itself must make direct HTTP requests. |
 
 ### Config reference
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `executor` | `"pyodide" \| "subprocess"` | `"pyodide"` | Selects the code executor |
-| `executor_unsandboxed_ack` | `bool` | `false` | Must be `true` to start the `subprocess` executor |
-| `RLM_KERNEL_PYTHON` (env) | path/name | `python3` | Python interpreter for the kernel process |
+| `executor_unsandboxed_ack` | `bool` | `false` | Must be `true` to start `subprocess` with `kernel_sandbox: local` |
+| `kernel_sandbox` | `"local" \| "docker"` | `"local"` | Sandbox mode for the `subprocess` executor |
+| `kernel_runtime` | `str` | *(runc)* | Docker runtime — `runsc` for gVisor (Linux + gVisor only); `docker` mode only |
+| `kernel_image` | `str` | `python:3.11-slim` | Container image for the kernel; `docker` mode only |
+| `kernel_network` | `str` | `none` | Docker network mode; `docker` mode only |
+| `RLM_KERNEL_PYTHON` (env) | path/name | `python3` | Python interpreter for `kernel_sandbox: local` |
 
-The `subprocess` executor also requires the Deno process to have `--allow-run` (to spawn the kernel) and `--allow-write` (for the UNIX socket). `_runner.py` grants `--allow-run` automatically when `executor: subprocess` is configured.
+The `subprocess` executor also requires the Deno process to have `--allow-run` (to spawn the kernel or `docker run`) and `--allow-write` (for the UNIX socket in local mode). `_runner.py` grants `--allow-run` automatically when `executor: subprocess` is configured, covering both local and docker sandbox modes.
 
 ## Backends (`src/call_llm.ts` dispatch)
 
