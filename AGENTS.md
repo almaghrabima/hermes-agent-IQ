@@ -201,6 +201,21 @@ the competing PRs into plugins against that interface.
 
 ## Development Environment
 
+From a fresh machine, the quickest way to a working checkout of **this fork** is the
+minimal installer (`scripts/install-iq.sh`) — it bootstraps `uv`, clones the repo,
+creates a Python 3.11 `.venv`, and installs `.[all]`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/almaghrabima/hermes-agent-IQ/main/scripts/install-iq.sh | bash
+# default install dir: ~/.hermes/hermes-agent-IQ   (override: --dir / --branch / --extras)
+```
+
+For contributor setup add the dev extra: `uv pip install -e ".[all,dev]"`. The
+full-featured installer (`scripts/install.sh`, Node/Playwright/Termux/root layout)
+targets upstream; see the README "Quick Install" for both.
+
+Then activate the venv in your checkout:
+
 ```bash
 # Prefer .venv; fall back to venv if that's what your checkout has.
 source .venv/bin/activate   # or: source venv/bin/activate
