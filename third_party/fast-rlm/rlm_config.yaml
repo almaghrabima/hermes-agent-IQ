@@ -16,3 +16,7 @@ enable_structured_io: true
 enable_compression_guard: true
 compression_min_chars: 5000
 compression_ratio: 0.6
+# Executor: "pyodide" (default, sandboxed WASM) or "subprocess" (native Python
+# kernel — UN-SANDBOXED in Phase 1; requires executor_unsandboxed_ack: true).
+executor: pyodide
+executor_unsandboxed_ack: false

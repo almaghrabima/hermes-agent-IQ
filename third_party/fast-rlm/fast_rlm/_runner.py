@@ -88,6 +88,12 @@ class RLMConfig:
     #   acp_agents={"hermes": {"command": "hermes", "args": ["acp"]}}
     # Each value: {command, args?, readonly_mode?, model?, env?}.
     acp_agents: Optional[dict] = None
+    # Phase-1 executor selection. "pyodide" (default) runs the agent's code in
+    # the in-process WASM VM. "subprocess" runs it in an out-of-process native
+    # Python kernel (kernel.py) — UN-SANDBOXED in Phase 1, so it refuses to run
+    # unless executor_unsandboxed_ack is True.
+    executor: Optional[str] = None
+    executor_unsandboxed_ack: bool = False
 
     @classmethod
     def default(cls) -> "RLMConfig":

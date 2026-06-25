@@ -54,6 +54,12 @@ export interface RlmConfig {
     // ACP backdoor: name -> adapter spec. Used to resolve "acp:<name>" model
     // strings for agents that aren't one of the built-in presets.
     acp_agents?: Record<string, AcpAgentSpec>;
+    // Phase-1 executor selection. "pyodide" (default) runs the agent's code in
+    // the in-process WASM VM. "subprocess" runs it in an out-of-process native
+    // Python kernel (kernel.py) — UN-SANDBOXED in Phase 1, so it refuses to run
+    // unless executor_unsandboxed_ack is true.
+    executor?: "pyodide" | "subprocess";
+    executor_unsandboxed_ack?: boolean;
 }
 
 export function loadConfig(): RlmConfig {
