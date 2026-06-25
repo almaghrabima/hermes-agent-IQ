@@ -12,6 +12,51 @@ export interface KernelStartOpts {
   handlers: Record<string, HostHandler>;
 }
 
+export interface Transport {
+  readChunk(): Promise<Uint8Array | null>;
+  write(bytes: Uint8Array): Promise<void>;
+  close(): void;
+}
+
+/** Transport over a Deno.Conn (the Phase-1 local unix-socket path). */
+class ConnTransport implements Transport {
+  #conn: Deno.Conn;
+  #listener?: Deno.Listener;
+  #socketPath?: string;
+  #proc?: Deno.ChildProcess;
+  #chunk = new Uint8Array(65536);
+
+  constructor(conn: Deno.Conn, opts: { listener?: Deno.Listener; socketPath?: string; proc?: Deno.ChildProcess }) {
+    this.#conn = conn;
+    this.#listener = opts.listener;
+    this.#socketPath = opts.socketPath;
+    this.#proc = opts.proc;
+  }
+
+  async readChunk(): Promise<Uint8Array | null> {
+    const n = await this.#conn.read(this.#chunk);
+    return n === null ? null : this.#chunk.subarray(0, n);
+  }
+
+  async write(bytes: Uint8Array): Promise<void> {
+    let off = 0;
+    while (off < bytes.length) {
+      const n = await this.#conn.write(bytes.subarray(off));
+      if (n <= 0) throw new Error("kernel socket write returned " + n);
+      off += n;
+    }
+  }
+
+  close(): void {
+    try { this.#conn.close(); } catch { /* ignore */ }
+    try { this.#listener?.close(); } catch { /* ignore */ }
+    try { this.#proc?.kill(); } catch { /* ignore */ }
+    if (this.#socketPath) {
+      try { Deno.removeSync(this.#socketPath); } catch { /* ignore */ }
+    }
+  }
+}
+
 export interface StepResult {
   stdout: string;
   error: string;
@@ -29,10 +74,7 @@ function pack(obj: unknown): Uint8Array {
 }
 
 export class Kernel {
-  #conn: Deno.Conn;
-  #listener: Deno.Listener;
-  #proc: Deno.ChildProcess;
-  #socketPath: string;
+  #transport: Transport;
   #handlers: Record<string, HostHandler>;
   #pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   #nextId = 2; // host owns EVEN ids
@@ -40,17 +82,8 @@ export class Kernel {
   #closed = false;
   #writeChain: Promise<void> = Promise.resolve();
 
-  private constructor(
-    conn: Deno.Conn,
-    listener: Deno.Listener,
-    proc: Deno.ChildProcess,
-    socketPath: string,
-    handlers: Record<string, HostHandler>,
-  ) {
-    this.#conn = conn;
-    this.#listener = listener;
-    this.#proc = proc;
-    this.#socketPath = socketPath;
+  private constructor(transport: Transport, handlers: Record<string, HostHandler>) {
+    this.#transport = transport;
     this.#handlers = handlers;
     this.#readLoop();
   }
@@ -60,31 +93,18 @@ export class Kernel {
     const listener = Deno.listen({ transport: "unix", path: socketPath });
     const proc = new Deno.Command(opts.python, {
       args: [opts.kernelPath, "--socket", socketPath],
-      stdout: "inherit",
-      stderr: "inherit",
+      stdout: "inherit", stderr: "inherit",
     }).spawn();
     const conn = await listener.accept();
-    return new Kernel(conn, listener, proc, socketPath, opts.handlers);
+    const transport = new ConnTransport(conn, { listener, socketPath, proc });
+    return new Kernel(transport, opts.handlers);
   }
 
-  // Serialize all writes through a single chain and fully flush each frame:
-  // Deno's conn.write() may write FEWER bytes than the buffer (partial write),
-  // and concurrent callers (batch fan-out fires multiple resp/req sends) would
-  // otherwise interleave bytes and corrupt frames. RLM frames get large.
   #send(frame: Frame): Promise<void> {
     const bytes = pack(frame);
-    const task = this.#writeChain.then(() => this.#writeAll(bytes));
-    this.#writeChain = task.catch(() => {}); // keep the chain alive past errors
+    const task = this.#writeChain.then(() => this.#transport.write(bytes));
+    this.#writeChain = task.catch(() => {});
     return task;
-  }
-
-  async #writeAll(bytes: Uint8Array): Promise<void> {
-    let off = 0;
-    while (off < bytes.length) {
-      const n = await this.#conn.write(bytes.subarray(off));
-      if (n <= 0) throw new Error("kernel socket write returned " + n);
-      off += n;
-    }
   }
 
   #request(op: string, extra: Record<string, unknown>): Promise<unknown> {
@@ -97,18 +117,13 @@ export class Kernel {
   }
 
   async #readLoop(): Promise<void> {
-    const chunk = new Uint8Array(65536);
     while (!this.#closed) {
-      let nRead: number | null;
-      try {
-        nRead = await this.#conn.read(chunk);
-      } catch {
-        break;
-      }
-      if (nRead === null) break;
-      const merged = new Uint8Array(this.#buf.length + nRead);
+      let chunk: Uint8Array | null;
+      try { chunk = await this.#transport.readChunk(); } catch { break; }
+      if (chunk === null) break;
+      const merged = new Uint8Array(this.#buf.length + chunk.length);
       merged.set(this.#buf);
-      merged.set(chunk.subarray(0, nRead), this.#buf.length);
+      merged.set(chunk, this.#buf.length);
       this.#buf = merged;
       this.#drainFrames();
     }
@@ -187,13 +202,8 @@ export class Kernel {
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
-    // Reject any still-pending host requests so a kernel that dies mid-op
-    // doesn't hang callers forever.
     for (const [, p] of this.#pending) p.reject(new Error("kernel connection closed"));
     this.#pending.clear();
-    try { this.#conn.close(); } catch { /* ignore */ }
-    try { this.#listener.close(); } catch { /* ignore */ }
-    try { this.#proc.kill(); } catch { /* ignore */ }
-    try { Deno.removeSync(this.#socketPath); } catch { /* ignore */ }
+    this.#transport.close();
   }
 }
