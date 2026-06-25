@@ -63,9 +63,35 @@ async def test_register_tool_and_error():
     check("exception in error field", "ValueError" in rerr["error"])
 
 
+async def test_host_bridge_llm_query():
+    (ra, wa), (rb, wb) = await _pair()
+    k = K.Kernel(ra, wa)
+    k._inject_bridge()
+    await _setup(k, "def FINAL(x):\n globals()['__final_result__']=x\n globals()['__final_result_set__']=True\n")
+
+    # Fake host: answer one llm_query req with a canned result.
+    async def fake_host():
+        # read the kernel's req frame
+        hdr = await rb.readexactly(4)
+        (n,) = K.struct.unpack(">I", hdr)
+        req = K.json.loads((await rb.readexactly(n)).decode())
+        assert req["op"] == "llm_query", req
+        resp = {"kind": "resp", "id": req["id"], "result": {"ok": True, "echo": req["context"]}}
+        wb.write(K.struct.pack(">I", len(K.json.dumps(resp).encode())) + K.json.dumps(resp).encode())
+        await wb.drain()
+
+    host_task = asyncio.ensure_future(fake_host())
+    # run_step does `await llm_query("hello")` and stores the result
+    r = await k.run_step("res = await __js_llm_query__('hello')\nprint(res['echo'])")
+    await host_task
+    check("llm_query bridged result", "hello" in r["stdout"])
+    wb.close()
+
+
 async def main():
     await test_state_and_final()
     await test_register_tool_and_error()
+    await test_host_bridge_llm_query()
     print(("FAILED: " + ", ".join(FAILURES)) if FAILURES else "ALL PASS")
     sys.exit(1 if FAILURES else 0)
 

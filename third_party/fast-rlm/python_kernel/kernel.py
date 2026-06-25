@@ -82,17 +82,126 @@ class Kernel:
         self.G[fn.__name__] = fn
         self.G.setdefault("__tools__", []).append(fn)
 
+    async def _pump_responses(self) -> None:
+        """Read resp frames and resolve pending futures until no more are pending."""
+        while self.pending:
+            try:
+                frame = await self._read_frame()
+            except (asyncio.IncompleteReadError, ConnectionError):
+                break
+            if frame.get("kind") == "resp":
+                fut = self.pending.pop(frame.get("id"), None)
+                if fut and not fut.done():
+                    err = frame.get("error")
+                    if err is not None:
+                        fut.set_exception(RuntimeError(err))
+                    else:
+                        fut.set_result(frame.get("result"))
+
+    async def host_call(self, op: str, payload: dict):
+        fut = asyncio.get_event_loop().create_future()
+        mid = self._next_id
+        self._next_id += 2  # odd ids only
+        self.pending[mid] = fut
+        await self._send({"kind": "req", "op": op, "id": mid, **payload})
+        # Start a background reader if serve() is not running (e.g. in tests).
+        # serve() sets _serving=True before its loop, preventing a duplicate pump.
+        if not getattr(self, "_serving", False):
+            asyncio.ensure_future(self._pump_responses())
+        return await fut
+
     def _inject_bridge(self) -> None:
-        # Task 2 fills this in (host-call shims). Defined here so Task 1 tests
-        # that don't touch the bridge still construct a kernel.
-        pass
+        kernel = self
 
-    async def serve(self) -> None:  # completed in Task 2
-        raise NotImplementedError
+        async def __host_call__(op, payload):
+            return await kernel.host_call(op, payload)
+
+        async def __js_llm_query__(context, child_schema=None, child_tool_sources=None,
+                                   child_mcp_servers=None, child_instruction=None,
+                                   suppress_guard=None):
+            return await kernel.host_call("llm_query", {
+                "context": context, "schema": child_schema,
+                "tools": child_tool_sources, "mcp": child_mcp_servers,
+                "instruction": child_instruction, "suppress_guard": suppress_guard})
+
+        async def __js_batch_confirm__(meta_json):
+            return await kernel.host_call("batch_confirm", {"meta": meta_json})
+
+        async def __js_mcp_call__(server, tool, args):
+            return await kernel.host_call("mcp_call", {"server": server, "tool": tool, "args": args})
+
+        async def __js_mcp_read_resource__(server, uri):
+            return await kernel.host_call("mcp_read_resource", {"server": server, "uri": uri})
+
+        self.G["__host_call__"] = __host_call__
+        self.G["__js_llm_query__"] = __js_llm_query__
+        self.G["__js_batch_confirm__"] = __js_batch_confirm__
+        self.G["__js_mcp_call__"] = __js_mcp_call__
+        self.G["__js_mcp_read_resource__"] = __js_mcp_read_resource__
+
+    async def _handle_request(self, frame: dict) -> None:
+        op = frame.get("op")
+        rid = frame.get("id")
+        try:
+            if op == "setup":
+                exec(compile(frame["code"], "<setup>", "exec"), self.G)  # noqa: S102
+                resp = {"ok": True}
+            elif op == "register_tool":
+                self._register_tool(frame["src"])
+                resp = {"ok": True}
+            elif op == "run_step":
+                resp = await self.run_step(frame["code"])
+            elif op == "reset_final":
+                self.G["__final_result__"] = None
+                self.G["__final_result_set__"] = False
+                resp = {"ok": True}
+            elif op == "shutdown":
+                await self._send({"kind": "resp", "id": rid, "ok": True})
+                self.writer.close()
+                return
+            else:
+                resp = {"error": f"unknown op {op}"}
+        except Exception:
+            resp = {"error": traceback.format_exc()}
+        await self._send({"kind": "resp", "id": rid, **resp})
+
+    async def serve(self) -> None:
+        self._serving = True
+        self._inject_bridge()
+        while True:
+            try:
+                frame = await self._read_frame()
+            except (asyncio.IncompleteReadError, ConnectionError):
+                break
+            if frame.get("kind") == "resp":
+                fut = self.pending.pop(frame.get("id"), None)
+                if fut and not fut.done():
+                    err = frame.get("error")
+                    if err is not None:
+                        fut.set_exception(RuntimeError(err))
+                    else:
+                        fut.set_result(frame.get("result"))
+                continue
+            # host request — dispatch concurrently so serve() keeps reading
+            # (a run_step awaits host calls whose resp frames arrive here).
+            asyncio.ensure_future(self._handle_request(frame))
 
 
-def main() -> None:  # completed in Task 2
-    raise NotImplementedError
+async def _amain(socket_path: str | None, tcp: str | None) -> None:
+    if tcp:
+        host, port = tcp.rsplit(":", 1)
+        reader, writer = await asyncio.open_connection(host, int(port))
+    else:
+        reader, writer = await asyncio.open_unix_connection(socket_path)
+    await Kernel(reader, writer).serve()
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--socket")
+    ap.add_argument("--tcp")
+    args = ap.parse_args()
+    asyncio.run(_amain(args.socket, args.tcp))
 
 
 if __name__ == "__main__":
