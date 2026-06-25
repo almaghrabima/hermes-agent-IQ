@@ -48,9 +48,7 @@ try:
 except ImportError:
 
     def _make_workflow() -> type:  # type: ignore[misc]
-        """Raise ImportError — temporalio must be installed to create a workflow."""
-        from temporalio import workflow  # noqa: F401  # re-raises ImportError
-        from temporalio.common import RetryPolicy  # noqa: F401
         raise ImportError(
-            "temporalio is required; install with: pip install temporalio"
+            "temporalio is required for the durable orchestration worker; "
+            "install the optional extra: uv pip install -e '.[temporal]'"
         )
