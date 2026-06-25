@@ -58,6 +58,19 @@ If you already have Git installed, the installer detects it and uses that instea
 >
 > **Windows:** Native Windows is fully supported — the PowerShell one-liner above installs everything. If you'd rather use WSL2, the Linux command works there too. Native Windows install lives under `%LOCALAPPDATA%\hermes`; WSL2 installs under `~/.hermes` as on Linux.
 
+### This fork (`hermes-agent-IQ`), Linux/macOS
+
+A minimal installer that clones **this fork** directly (uv + a Python 3.11 venv +
+deps), with no extra hosting:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/almaghrabima/hermes-agent-IQ/main/scripts/install-iq.sh | bash
+```
+
+Options: `--dir PATH`, `--branch NAME`, `--extras LIST` (default `all`). Installs to
+`~/.hermes/hermes-agent-IQ` by default. For the full-featured installer (Termux,
+root/FHS layout, Node, Playwright) use `scripts/install.sh`.
+
 After installation:
 
 ```bash
