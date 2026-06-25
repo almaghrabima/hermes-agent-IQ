@@ -1200,6 +1200,8 @@ worker process started with `hermes temporal worker`.
 **Dependency:** `temporalio==1.29.0` lives in the `[temporal]` optional extra and is
 **not** in `[all]` — it is lazy-installed on first use via `tool.temporal`.
 
+**Approval policy:** durable steps run subagents with the configured non-interactive approval policy (`delegation.subagent_auto_approve`, default deny).
+
 Design and plan: `docs/temporal/`.
 
 ---

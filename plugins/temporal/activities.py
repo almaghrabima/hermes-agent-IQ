@@ -16,8 +16,19 @@ def _delegate_handler() -> Callable:
     return entry.handler
 
 
+def _install_worker_approval_callback() -> None:
+    """Install the configured non-interactive subagent approval callback on this
+    Temporal worker thread, mirroring delegate_task's ThreadPoolExecutor initializer.
+    Without it, a subagent's dangerous-command prompt would fall back to input() and
+    hang the worker. Default policy is auto-deny (delegation.subagent_auto_approve)."""
+    from tools.delegate_tool import _get_subagent_approval_callback
+    from tools.terminal_tool import set_approval_callback
+    set_approval_callback(_get_subagent_approval_callback())
+
+
 def execute_durable_step(step: dict) -> dict:
     """Run one durable step as a single subagent delegation. Pure of Temporal."""
+    _install_worker_approval_callback()
     handler = _delegate_handler()
     raw = handler({"goal": step["prompt"], "sub_agent": step.get("sub_agent")})
     text = raw if isinstance(raw, str) else json.dumps(raw)
