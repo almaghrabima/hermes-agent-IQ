@@ -1,5 +1,66 @@
 import { assert, assertEquals } from "jsr:@std/assert@^1.0.0";
-import { buildDockerArgs, Kernel } from "../src/kernel_client.ts";
+import { buildDockerArgs, Kernel, preflightRuntime } from "../src/kernel_client.ts";
+
+// --- Task 1: runtime preflight (deterministic, no real docker/KVM needed) ---
+
+Deno.test("preflightRuntime: runc is a no-op even with nothing registered", async () => {
+  // runc is Docker's default; never gated.
+  await preflightRuntime("runc", {
+    listRuntimes: () => Promise.resolve([]),
+    hasKvm: () => false,
+    os: () => "darwin",
+  });
+});
+
+Deno.test("preflightRuntime: unregistered runtime rejects with an actionable, runtime-named message", async () => {
+  let msg = "";
+  try {
+    await preflightRuntime("kata-fc", {
+      listRuntimes: () => Promise.resolve(["runc", "runsc"]),
+      hasKvm: () => true,
+      os: () => "linux",
+    });
+    throw new Error("expected preflightRuntime to reject");
+  } catch (e) {
+    msg = String((e as Error).message);
+  }
+  assert(msg.includes("kata-fc"), "message names the requested runtime");
+  assert(/not registered|unavailable/i.test(msg), "message is actionable");
+  assert(msg.includes("runsc"), "message lists what IS available");
+});
+
+Deno.test("preflightRuntime: registered non-VM runtime passes without a KVM check", async () => {
+  // runsc (gVisor) does not require /dev/kvm in its default mode.
+  await preflightRuntime("runsc", {
+    listRuntimes: () => Promise.resolve(["runc", "runsc"]),
+    hasKvm: () => false,
+    os: () => "linux",
+  });
+});
+
+Deno.test("preflightRuntime: kata on Linux without /dev/kvm rejects mentioning KVM", async () => {
+  let msg = "";
+  try {
+    await preflightRuntime("kata", {
+      listRuntimes: () => Promise.resolve(["runc", "kata"]),
+      hasKvm: () => false,
+      os: () => "linux",
+    });
+    throw new Error("expected preflightRuntime to reject");
+  } catch (e) {
+    msg = String((e as Error).message);
+  }
+  assert(msg.includes("kata"), "message names the runtime");
+  assert(/kvm/i.test(msg), "message mentions the missing KVM prerequisite");
+});
+
+Deno.test("preflightRuntime: kata registered with /dev/kvm present passes", async () => {
+  await preflightRuntime("kata", {
+    listRuntimes: () => Promise.resolve(["runc", "kata"]),
+    hasKvm: () => true,
+    os: () => "linux",
+  });
+});
 
 Deno.test("buildDockerArgs: runc omits --runtime, mounts kernel ro, network none", () => {
   const args = buildDockerArgs({
@@ -22,6 +83,15 @@ Deno.test("buildDockerArgs: runsc passes --runtime runsc", () => {
   });
   assert(args.join(" ").includes("--runtime runsc"));
   assert(args.join(" ").includes("--network bridge"));
+});
+
+Deno.test("buildDockerArgs: microVM runtimes (kata, kata-fc) pass through generically", () => {
+  for (const rt of ["kata", "kata-fc"]) {
+    const args = buildDockerArgs({
+      kernelPath: "/k.py", image: "img", runtime: rt, network: "none", name: "n",
+    });
+    assert(args.join(" ").includes(`--runtime ${rt}`), `${rt} must be forwarded as --runtime ${rt}`);
+  }
 });
 
 // Gated e2e: only runs when Docker is available.

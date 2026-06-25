@@ -45,9 +45,9 @@ Deno/TypeScript (engine), Python 3.11 stdlib (Hermes `rlm_tool` + driver), Docke
 
 **Interface produced:** `preflightRuntime(runtime: string): Promise<void>` — no-op for `runc`; for any other value it (a) checks the runtime is registered (`docker info`'s runtimes), and on Linux (b) checks `/dev/kvm` exists for VM runtimes (`kata*`). Throws a single actionable `Error` (`"kernel_runtime '<r>' unavailable: <reason>. See docs/rlm/...-design.md"`) otherwise. `Kernel.start` awaits it before `docker run` when `sandbox === "docker"` and `runtime !== "runc"`.
 
-- [ ] **Step 1 (failing test):** in `docker_launcher_test.ts`, assert `preflightRuntime("kata-fc")` rejects with a message containing the runtime name when the runtime is absent (use a fake/missing runtime name so it's deterministic cross-platform). Pure logic — runs on macOS.
-- [ ] **Step 2:** implement `preflightRuntime`; wire into `Kernel.start`. Keep the existing raw-Docker failure path as a backstop.
-- [ ] **Step 3:** verify `buildDockerArgs("kata-fc")` / `buildDockerArgs("kata")` emit `--runtime kata-fc` / `--runtime kata` (extend the existing `runsc` arg test). Run: `export PATH="$HOME/.deno/bin:$PATH" && deno test --allow-read --allow-write --allow-run --allow-env --allow-net tests/docker_launcher_test.ts`.
+- [x] **Step 1 (failing test):** in `docker_launcher_test.ts`, assert `preflightRuntime("kata-fc")` rejects with a message containing the runtime name when the runtime is absent (use a fake/missing runtime name so it's deterministic cross-platform). Pure logic — runs on macOS. *(Done: 5 preflight tests via injectable `RuntimeProbe`; verified RED on missing export.)*
+- [x] **Step 2:** implement `preflightRuntime`; wire into `Kernel.start`. Keep the existing raw-Docker failure path as a backstop. *(Done: `preflightRuntime` + `RuntimeProbe`/`defaultRuntimeProbe`; awaited in `Kernel.start` before `docker run` for non-`runc`; raw-Docker spawn error retained as backstop.)*
+- [x] **Step 3:** verify `buildDockerArgs("kata-fc")` / `buildDockerArgs("kata")` emit `--runtime kata-fc` / `--runtime kata` (extend the existing `runsc` arg test). Run: `export PATH="$HOME/.deno/bin:$PATH" && deno test --allow-read --allow-write --allow-run --allow-env --allow-net tests/docker_launcher_test.ts`. *(Done: 18 tests green, typecheck clean, no regressions.)*
 
 ## Task 2: Config surface
 

@@ -11,7 +11,7 @@ export interface KernelStartOpts {
   kernelPath: string;
   handlers: Record<string, HostHandler>;
   sandbox?: "local" | "docker";
-  runtime?: string;   // "runc" (default) | "runsc"
+  runtime?: string;   // "runc" (default) | "runsc" (gVisor) | "kata"/"kata-fc" (microVM; preflighted)
   image?: string;     // default python:3.11-slim
   network?: string;   // "none" (default) | "bridge"
 }
@@ -25,6 +25,70 @@ export function buildDockerArgs(opts: {
   }
   args.push("-v", `${opts.kernelPath}:/kernel.py:ro`, opts.image, "python", "/kernel.py", "--stdio");
   return args;
+}
+
+/** Injectable host probes so preflightRuntime is deterministically testable. */
+export interface RuntimeProbe {
+  /** OCI runtimes registered with the Docker daemon. */
+  listRuntimes(): Promise<string[]>;
+  /** Whether /dev/kvm is present (only meaningful on a native Linux host). */
+  hasKvm(): boolean;
+  /** Deno.build.os ("linux" | "darwin" | "windows" | ...). */
+  os(): string;
+}
+
+const DOC_REF = "docs/rlm/2026-06-25-fast-rlm-kernel-phase4-per-os-boundaries-design.md";
+
+const defaultRuntimeProbe: RuntimeProbe = {
+  async listRuntimes(): Promise<string[]> {
+    try {
+      const out = await new Deno.Command("docker", {
+        args: ["info", "--format", "{{json .Runtimes}}"],
+        stdout: "piped",
+        stderr: "null",
+      }).output();
+      if (!out.success) return [];
+      const json = JSON.parse(new TextDecoder().decode(out.stdout).trim() || "{}");
+      return Object.keys(json);
+    } catch {
+      return [];
+    }
+  },
+  hasKvm(): boolean {
+    try {
+      Deno.statSync("/dev/kvm");
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  os(): string {
+    return Deno.build.os;
+  },
+};
+
+/**
+ * Validate a non-runc kernel_runtime BEFORE `docker run`, turning "unknown runtime" /
+ * missing-KVM into a single actionable error instead of a raw Docker failure.
+ * No-op for "runc" (Docker's default). Never downgrades to a weaker runtime.
+ */
+export async function preflightRuntime(runtime: string, probe: RuntimeProbe = defaultRuntimeProbe): Promise<void> {
+  if (!runtime || runtime === "runc") return;
+  const registered = await probe.listRuntimes();
+  if (!registered.includes(runtime)) {
+    const avail = registered.length ? registered.join(", ") : "(none detected)";
+    throw new Error(
+      `kernel_runtime '${runtime}' unavailable: not registered with Docker (available: ${avail}). ` +
+        `Install/register the runtime, or use 'runc'/'runsc'. See ${DOC_REF}`,
+    );
+  }
+  // microVM runtimes (Kata, incl. Firecracker/Cloud-Hypervisor backends) need KVM on a native Linux host.
+  if (runtime.startsWith("kata") && probe.os() === "linux" && !probe.hasKvm()) {
+    throw new Error(
+      `kernel_runtime '${runtime}' unavailable: /dev/kvm not present — microVM runtimes need a Linux host with KVM. ` +
+        `See ${DOC_REF}`,
+    );
+  }
 }
 
 export interface Transport {
@@ -133,11 +197,15 @@ export class Kernel {
 
   static async start(opts: KernelStartOpts): Promise<Kernel> {
     if ((opts.sandbox ?? "local") === "docker") {
+      const runtime = opts.runtime ?? "runc";
+      // Fail cleanly on an unavailable runtime (unknown/unregistered, or missing KVM)
+      // before spawning docker — never silently downgrade to a weaker boundary.
+      await preflightRuntime(runtime);
       const name = `rlm-kernel-${Math.abs(Date.now() ^ (Math.floor(performance.now() * 1000)))}`;
       const args = buildDockerArgs({
         kernelPath: opts.kernelPath,
         image: opts.image ?? "python:3.11-slim",
-        runtime: opts.runtime ?? "runc",
+        runtime,
         network: opts.network ?? "none",
         name,
       });
