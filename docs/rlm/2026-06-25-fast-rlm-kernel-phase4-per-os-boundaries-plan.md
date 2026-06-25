@@ -69,13 +69,19 @@ Deno/TypeScript (engine), Python 3.11 stdlib (Hermes `rlm_tool` + driver), Docke
 
 **Files:** Modify `third_party/fast-rlm/tests/docker_launcher_test.ts`
 
-- [ ] **Step 1:** add a `kvmAvailable()` gate (Linux + `/dev/kvm` + Kata runtime registered) mirroring the existing `dockerAvailable()` helper; skip with a logged message otherwise (so it's a no-op on macOS/CI without KVM).
-- [ ] **Step 2:** when gated in, run the same boot → state → FINAL → `--network none` egress-blocked sequence as the `runc` e2e, but with `runtime: "kata"` (or `kata-fc`). This is the only test that proves the real microVM boundary; document that it requires a Linux/KVM host with Kata installed.
+- [x] **Step 1:** add a `kvmAvailable()` gate (Linux + `/dev/kvm` + Kata runtime registered) mirroring the existing `dockerAvailable()` helper; skip with a logged message otherwise (so it's a no-op on macOS/CI without KVM). *(Done: `kataKvmRuntime()` returns the registered Kata runtime name — prefers a Firecracker-backed `kata*fc` — or null to skip.)*
+- [x] **Step 2:** when gated in, run the same boot → state → FINAL → `--network none` egress-blocked sequence as the `runc` e2e, but with `runtime: "kata"` (or `kata-fc`). This is the only test that proves the real microVM boundary; document that it requires a Linux/KVM host with Kata installed. *(Done: test written. ⚠️ UNVERIFIED on this macOS host — it SKIPs (no `/dev/kvm`). Must be run on a Linux/KVM host with Kata to confirm green.)*
 
 ## Task 5: Docs + verification
 
-- [ ] **Step 1:** update `third_party/fast-rlm/CLAUDE.md` to note `kata`/`kata-fc` are recognized `kernel_runtime` values and require a Linux/KVM host with Kata installed (the per-OS matrix from #4 already frames this).
-- [ ] **Step 2:** full local gate — `deno test ... tests/docker_launcher_test.ts tests/config_executor_test.ts tests/executor_gate_test.ts` (with `--allow-sys` for the gate test) and `scripts/run_tests.sh tests/tools/test_rlm_tool.py tests/tools/test_rlm_driver.py tests/tools/test_rlm_skill.py`. Record output as evidence (per superpowers:verification-before-completion). The microVM e2e will SKIP locally — note that explicitly.
+- [x] **Step 1:** update `third_party/fast-rlm/CLAUDE.md` to note `kata`/`kata-fc` are recognized `kernel_runtime` values and require a Linux/KVM host with Kata installed (the per-OS matrix from #4 already frames this). *(Done: boundary matrix + sub-keys + config-reference rows updated; preflight + skip behavior documented.)*
+- [x] **Step 2:** full local gate — `deno test ... tests/docker_launcher_test.ts tests/config_executor_test.ts tests/executor_gate_test.ts` (with `--allow-sys` for the gate test) and `scripts/run_tests.sh tests/tools/test_rlm_tool.py tests/tools/test_rlm_driver.py tests/tools/test_rlm_skill.py`. Record output as evidence (per superpowers:verification-before-completion). The microVM e2e will SKIP locally — note that explicitly. *(Done — see evidence below.)*
+
+### Verification evidence (2026-06-25, macOS/arm64, no KVM)
+
+- Deno: **19 passed | 0 failed** across `docker_launcher_test.ts` (12, incl. the microVM e2e which **SKIPs**) + `config_executor_test.ts` (3) + `executor_gate_test.ts` (4).
+- Python: `scripts/run_tests.sh` → **33 passed | 0 failed** across `test_rlm_tool.py` / `test_rlm_driver.py` / `test_rlm_skill.py`.
+- The **microVM e2e SKIPs** locally (`SKIP: requires a Linux host with /dev/kvm and a Kata runtime registered`) — real-boundary validation is pending a Linux/KVM/Kata host.
 
 ## Out of scope (later phases)
 

@@ -161,3 +161,61 @@ Deno.test("docker bad image: setup rejects (no hang) (skips if no docker)", asyn
   } finally { k.close(); }
   assert(rejected, "expected setup to reject on a bad image");
 });
+
+// Gated microVM e2e: requires a LINUX host with /dev/kvm AND a Kata runtime
+// registered with Docker. Skips everywhere else (incl. the macOS dev host — no KVM).
+// This is the only test that exercises the real microVM (hardware-VM) boundary.
+async function kataKvmRuntime(): Promise<string | null> {
+  if (Deno.build.os !== "linux") return null;
+  try {
+    Deno.statSync("/dev/kvm");
+  } catch {
+    return null;
+  }
+  try {
+    const out = await new Deno.Command("docker", {
+      args: ["info", "--format", "{{json .Runtimes}}"],
+      stdout: "piped",
+      stderr: "null",
+    }).output();
+    if (!out.success) return null;
+    const runtimes = Object.keys(JSON.parse(new TextDecoder().decode(out.stdout).trim() || "{}"));
+    // Prefer a Firecracker-backed Kata runtime if registered, else any kata*.
+    return runtimes.find((r) => /kata.*(fc|firecracker)/i.test(r)) ??
+      runtimes.find((r) => /kata/i.test(r)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+Deno.test("microVM kernel e2e: state + FINAL + egress blocked (skips without Linux/KVM/Kata)", async () => {
+  const runtime = await kataKvmRuntime();
+  if (!runtime) { console.log("SKIP: requires a Linux host with /dev/kvm and a Kata runtime registered"); return; }
+  const KERNEL = new URL("../python_kernel/kernel.py", import.meta.url).pathname;
+  const k = await Kernel.start({
+    python: "python3", kernelPath: KERNEL,
+    handlers: { llm_query: (p: { context: unknown }) => Promise.resolve({ echo: p.context }) },
+    sandbox: "docker", runtime, image: "python:3.11-slim", network: "none",
+  });
+  await k.setup("def FINAL(x):\n globals()['__final_result__']=x\n globals()['__final_result_set__']=True\n");
+  // persistent state across steps inside the microVM:
+  const r1 = await k.runStep("x = 41\nprint('boot')");
+  assert(r1.stdout.includes("boot"));
+  const r2 = await k.runStep("x += 1\nprint(x)");
+  assert(r2.stdout.includes("42"));
+  // egress blocked by --network none:
+  const rNet = await k.runStep(
+    "import urllib.request\n" +
+      "try:\n urllib.request.urlopen('http://example.com', timeout=3); print('NET_OK')\n" +
+      "except Exception:\n print('NET_BLOCKED')\n",
+  );
+  assert(rNet.stdout.includes("NET_BLOCKED"));
+  // control channel (llm_query) still works over stdio:
+  const rCtl = await k.runStep("res = await __js_llm_query__('hi')\nprint(res['echo'])");
+  assert(rCtl.stdout.includes("hi"));
+  // FINAL resolves:
+  const r3 = await k.runStep("FINAL({'v': x})");
+  assertEquals(r3.final_set, true);
+  assertEquals(r3.final_value, { v: 42 });
+  await k.shutdown();
+});
