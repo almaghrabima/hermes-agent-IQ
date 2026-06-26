@@ -833,13 +833,20 @@ class SessionDB:
     def _sqlite_supports_fts5(self, cursor: sqlite3.Cursor) -> bool:
         try:
             cursor.execute("CREATE VIRTUAL TABLE temp._hermes_fts5_probe USING fts5(x)")
-            cursor.execute("DROP TABLE temp._hermes_fts5_probe")
-            return True
         except sqlite3.OperationalError as exc:
             if not self._is_fts5_unavailable_error(exc):
                 raise
             self._warn_fts5_unavailable(exc)
             return False
+        # The CREATE succeeding is the capability proof. Dropping the probe table
+        # is best-effort cleanup: on libsql/Turso embedded replicas a temp-schema
+        # table created over the remote (Hrana) stream may not persist to the
+        # DROP ("no such table"), which must not fail FTS5 detection.
+        try:
+            cursor.execute("DROP TABLE IF EXISTS temp._hermes_fts5_probe")
+        except sqlite3.OperationalError:
+            pass
+        return True
 
     @staticmethod
     def _drop_fts_triggers(cursor: sqlite3.Cursor) -> None:

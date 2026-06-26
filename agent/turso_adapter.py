@@ -114,6 +114,25 @@ class _TursoCursor:
             return row
         return _Row(_colnames(self._raw.description), tuple(row))
 
+    # Cursor-level execute family. SessionDB calls these on cursors (e.g.
+    # `cursor.executescript(SCHEMA_SQL)` in _init_schema, and `cursor.execute(...)`
+    # widely), exactly like stdlib sqlite3 cursors. Each returns self so the
+    # stdlib idiom `cursor.execute(sql).fetchone()` keeps working.
+    def execute(self, sql, parameters=()):
+        with _translate():
+            self._raw.execute(sql, parameters)
+        return self
+
+    def executemany(self, sql, seq_of_parameters):
+        with _translate():
+            self._raw.executemany(sql, seq_of_parameters)
+        return self
+
+    def executescript(self, script):
+        with _translate():
+            self._raw.executescript(script)
+        return self
+
     def fetchone(self):
         with _translate():
             return self._wrap(self._raw.fetchone())

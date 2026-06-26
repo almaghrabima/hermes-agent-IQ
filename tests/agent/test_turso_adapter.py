@@ -273,3 +273,31 @@ def test_constraint_named_identifier_is_operational_not_integrity(tmp_path):
     with pytest.raises(sqlite3.OperationalError):
         conn.execute("SELECT my_constraint_col FROM t")
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 13: cursor-level execute family (SessionDB._init_schema uses
+# cursor.executescript(...); SessionDB uses cursor.execute(...) widely)
+# ---------------------------------------------------------------------------
+
+
+def test_cursor_execute_family(tmp_path):
+    """A cursor from the adapter must support execute/executescript/executemany
+    like a stdlib sqlite3 cursor — SessionDB calls these on cursors directly
+    (e.g. `cursor.executescript(SCHEMA_SQL)` in _init_schema).
+    """
+    conn = _conn(tmp_path)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    # executescript on a CURSOR (the exact _init_schema idiom)
+    cur.executescript("CREATE TABLE a(id INTEGER PRIMARY KEY, name TEXT); CREATE TABLE b(x);")
+    # execute on a cursor returns self → chains to fetch, like stdlib
+    cur.execute("INSERT INTO a(name) VALUES (?)", ("alice",))
+    conn.commit()
+    row = cur.execute("SELECT id, name FROM a").fetchone()
+    assert row["name"] == "alice" and row[0] == 1
+    # executemany on a cursor
+    cur.executemany("INSERT INTO b(x) VALUES (?)", [(1,), (2,), (3,)])
+    conn.commit()
+    assert conn.execute("SELECT COUNT(*) FROM b").fetchone()[0] == 3
+    conn.close()
