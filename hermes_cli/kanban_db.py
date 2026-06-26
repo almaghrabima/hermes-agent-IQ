@@ -7283,47 +7283,34 @@ def _resolve_worker_cli_toolsets(hermes_home: Optional[str]) -> Optional[list[st
         return None
 
 
-def _default_spawn(
+def build_spawn_args(
     task: Task,
     workspace: str,
     *,
     board: Optional[str] = None,
-) -> Optional[int]:
-    """Fire-and-forget ``hermes -p <profile> chat -q ...`` subprocess.
-
-    Returns the spawned child's PID so the dispatcher can detect crashes
-    before the claim TTL expires. The child's completion is still observed
-    via the ``complete`` / ``block`` transitions the worker writes itself;
-    the PID check is a safety net for crashes, OOM kills, and Ctrl+C.
-
-    ``board`` pins the child's kanban context to that board: the child's
-    ``HERMES_KANBAN_DB`` / ``HERMES_KANBAN_BOARD`` / workspaces_root env
-    vars all resolve to the same board the dispatcher claimed the task
-    from. Workers cannot accidentally see other boards.
+) -> dict:
+    """Pure, JSON-serializable spawn description shared by the builtin
+    subprocess spawn and the Temporal activity. Computes the argv, the
+    kanban-specific env OVERLAY (NOT the full os.environ), the cwd, the
+    per-task log path, and the runtime cap. All board-scoped paths are
+    resolved here (dispatcher-side); the executor re-overlays the overlay
+    on its own host os.environ.
     """
-    import subprocess
     if not task.assignee:
         raise ValueError(f"task {task.id} has no assignee")
-
-    from hermes_cli.profiles import normalize_profile_name
+    from hermes_cli.profiles import normalize_profile_name, resolve_profile_env
 
     profile_arg = normalize_profile_name(task.assignee)
-
-    prompt = f"work kanban task {task.id}"
-    env = dict(os.environ)
+    overlay: dict = {}
 
     # Inject HERMES_HOME so the worker reads the profile-scoped config.yaml
     # (fallback_providers, toolsets, agent settings, etc.) instead of the root
-    # config.  Without this, `env = dict(os.environ)` copies only the parent's
-    # env, and when the child process starts `hermes -p <name>` the
-    # _apply_profile_override() runs *before* hermes_constants is imported.
-    # If HERMES_HOME is absent from the child's env, get_hermes_home() falls
-    # back to Path.home() / ".hermes" (the DEFAULT profile root), ignoring the
+    # config.  Without this the child process's get_hermes_home() falls back to
+    # Path.home() / ".hermes" (the DEFAULT profile root), ignoring the
     # profile-specific config entirely.  Fixes profile-scoped fallback_providers
     # being invisible to kanban workers.
-    from hermes_cli.profiles import resolve_profile_env
     try:
-        env["HERMES_HOME"] = resolve_profile_env(profile_arg)
+        overlay["HERMES_HOME"] = resolve_profile_env(profile_arg)
     except FileNotFoundError:
         # Profile dir doesn't exist — defer resolution to the CLI's
         # _apply_profile_override() via HERMES_PROFILE (set below).
@@ -7331,9 +7318,9 @@ def _default_spawn(
         # HERMES_HOME never had profiles created.
         pass
     if task.tenant:
-        env["HERMES_TENANT"] = task.tenant
-    env["HERMES_KANBAN_TASK"] = task.id
-    env["HERMES_KANBAN_WORKSPACE"] = workspace
+        overlay["HERMES_TENANT"] = task.tenant
+    overlay["HERMES_KANBAN_TASK"] = task.id
+    overlay["HERMES_KANBAN_WORKSPACE"] = workspace
     # Pin TERMINAL_CWD to the task's workspace so the worker's file tools and
     # context-file loader anchor on the workspace, not whatever cwd the
     # dispatching gateway happened to export. The worker subprocess is already
@@ -7347,50 +7334,49 @@ def _default_spawn(
     # sentinel TERMINAL_CWD values, so a non-dir workspace must NOT be set
     # here (leave the inherited value rather than write a meaningless one).
     if workspace and os.path.isabs(workspace) and os.path.isdir(workspace):
-        env["TERMINAL_CWD"] = workspace
+        overlay["TERMINAL_CWD"] = workspace
     if task.branch_name:
-        env["HERMES_KANBAN_BRANCH"] = task.branch_name
+        overlay["HERMES_KANBAN_BRANCH"] = task.branch_name
     if task.current_run_id is not None:
-        env["HERMES_KANBAN_RUN_ID"] = str(task.current_run_id)
+        overlay["HERMES_KANBAN_RUN_ID"] = str(task.current_run_id)
     if task.claim_lock:
-        env["HERMES_KANBAN_CLAIM_LOCK"] = task.claim_lock
+        overlay["HERMES_KANBAN_CLAIM_LOCK"] = task.claim_lock
     # Goal-loop mode: the worker reads these and wraps its run in the
     # Ralph-style /goal judge loop (see cli.py quiet-mode path). Only set
     # when enabled so non-goal tasks keep a clean env.
     if task.goal_mode:
-        env["HERMES_KANBAN_GOAL_MODE"] = "1"
+        overlay["HERMES_KANBAN_GOAL_MODE"] = "1"
         if task.goal_max_turns is not None:
-            env["HERMES_KANBAN_GOAL_MAX_TURNS"] = str(int(task.goal_max_turns))
+            overlay["HERMES_KANBAN_GOAL_MAX_TURNS"] = str(int(task.goal_max_turns))
     terminal_timeout = _worker_terminal_timeout_env(
         task.max_runtime_seconds,
-        env.get("TERMINAL_TIMEOUT"),
+        os.environ.get("TERMINAL_TIMEOUT"),
     )
     if terminal_timeout is not None:
-        env["TERMINAL_TIMEOUT"] = terminal_timeout
+        overlay["TERMINAL_TIMEOUT"] = terminal_timeout
     foreground_timeout = _worker_terminal_timeout_env(
         task.max_runtime_seconds,
-        env.get("TERMINAL_MAX_FOREGROUND_TIMEOUT"),
+        os.environ.get("TERMINAL_MAX_FOREGROUND_TIMEOUT"),
     )
     if foreground_timeout is not None:
-        env["TERMINAL_MAX_FOREGROUND_TIMEOUT"] = foreground_timeout
+        overlay["TERMINAL_MAX_FOREGROUND_TIMEOUT"] = foreground_timeout
     # Pin the shared board + workspaces root the dispatcher resolved, so
     # that even when the worker activates a profile (`hermes -p <name>`
     # rewrites HERMES_HOME), its kanban paths still match the
     # dispatcher's. Belt-and-braces with the `get_default_hermes_root()`
     # resolution in `kanban_home()` — symmetric resolution is the norm,
     # but unusual symlink / Docker layouts are caught here too.
-    env["HERMES_KANBAN_DB"] = str(kanban_db_path(board=board))
-    env["HERMES_KANBAN_WORKSPACES_ROOT"] = str(workspaces_root(board=board))
+    overlay["HERMES_KANBAN_DB"] = str(kanban_db_path(board=board))
+    overlay["HERMES_KANBAN_WORKSPACES_ROOT"] = str(workspaces_root(board=board))
     # Board slug — the final defense-in-depth pin. If the worker ever
     # resolves kanban paths without the DB / workspaces env vars, the
     # board slug still forces it to the right directory.
-    resolved_board = _normalize_board_slug(board) or get_current_board()
-    env["HERMES_KANBAN_BOARD"] = resolved_board
+    overlay["HERMES_KANBAN_BOARD"] = _normalize_board_slug(board) or get_current_board()
     # HERMES_PROFILE is the author the kanban_comment tool defaults to.
     # `hermes -p <assignee>` activates the profile, but the env var is
     # what the tool reads — set it explicitly here so comments are
     # attributed correctly regardless of how the child loads config.
-    env["HERMES_PROFILE"] = profile_arg
+    overlay["HERMES_PROFILE"] = profile_arg
 
     cmd = [
         *_resolve_hermes_argv(),
@@ -7412,29 +7398,52 @@ def _default_spawn(
                 cmd.extend(["--skills", sk])
     if task.model_override:
         cmd.extend(["-m", task.model_override])
-    worker_toolsets = _resolve_worker_cli_toolsets(env.get("HERMES_HOME"))
+    worker_toolsets = _resolve_worker_cli_toolsets(overlay.get("HERMES_HOME") or os.environ.get("HERMES_HOME"))
     if worker_toolsets:
         cmd.extend(["--toolsets", ",".join(worker_toolsets)])
     cmd.extend([
         "chat",
-        "-q", prompt,
+        "-q", f"work kanban task {task.id}",
     ])
+
     # Redirect output to a per-task log under <board-root>/logs/.
     # Anchored at the board root (not the shared kanban root), so
     # `hermes kanban log` on a specific board reads its own file and
     # logs don't collide across boards that happen to share task ids.
     log_dir = worker_logs_dir(board=board)
-    log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{task.id}.log"
+    return {
+        "argv": cmd,
+        "cwd": workspace if os.path.isdir(workspace) else None,
+        "env_overlay": overlay,
+        "log_path": str(log_path),
+        "max_runtime_seconds": (
+            int(task.max_runtime_seconds)
+            if task.max_runtime_seconds is not None else None
+        ),
+    }
+
+
+def _popen_from_spawn_args(args: dict) -> "subprocess.Popen":
+    """Execute a ``build_spawn_args`` description: rotate+open the log,
+    overlay the env on the host os.environ, and Popen. Returns the live
+    Popen handle (caller reads ``.pid`` for fire-and-forget, or polls it
+    for supervision). Intentionally does NOT close the log file handle —
+    the child keeps writing after this returns.
+    """
+    import subprocess
+
+    env = {**os.environ, **args["env_overlay"]}
+    log_path = Path(args["log_path"])
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     rotate_bytes, backup_count = worker_log_rotation_config()
     _rotate_worker_log(log_path, rotate_bytes, backup_count)
-
-    # Use 'a' so a re-run on unblock appends rather than overwrites.
+    # Use 'ab' so a re-run on unblock appends rather than overwrites.
     log_f = open(log_path, "ab")
     try:
-        proc = subprocess.Popen(  # noqa: S603 -- argv is a fixed list built above
-            cmd,
-            cwd=workspace if os.path.isdir(workspace) else None,
+        return subprocess.Popen(  # noqa: S603 -- argv is a fixed list built above
+            args["argv"],
+            cwd=args["cwd"],
             stdin=subprocess.DEVNULL,
             stdout=log_f,
             stderr=subprocess.STDOUT,
@@ -7453,7 +7462,27 @@ def _default_spawn(
     # handle is kept alive by the child's inheritance.  The parent's
     # reference goes out of scope and is GC'd, but the OS-level FD stays
     # open in the child until the child exits.
-    return proc.pid
+
+
+def _default_spawn(
+    task: Task,
+    workspace: str,
+    *,
+    board: Optional[str] = None,
+) -> Optional[int]:
+    """Fire-and-forget ``hermes -p <profile> chat -q ...`` subprocess.
+
+    Returns the spawned child's PID so the dispatcher can detect crashes
+    before the claim TTL expires. The child's completion is still observed
+    via the ``complete`` / ``block`` transitions the worker writes itself;
+    the PID check is a safety net for crashes, OOM kills, and Ctrl+C.
+
+    ``board`` pins the child's kanban context to that board: the child's
+    ``HERMES_KANBAN_DB`` / ``HERMES_KANBAN_BOARD`` / workspaces_root env
+    vars all resolve to the same board the dispatcher claimed the task
+    from. Workers cannot accidentally see other boards.
+    """
+    return _popen_from_spawn_args(build_spawn_args(task, workspace, board=board)).pid
 
 
 # ---------------------------------------------------------------------------
