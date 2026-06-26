@@ -4,6 +4,7 @@ a SyncConfig is supplied, a synced embedded replica). Vectors are NATIVE libSQL
 F32_BLOB columns; similarity is computed in-database via vector_distance_cos."""
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sqlite3
@@ -12,6 +13,8 @@ import time
 from pathlib import Path
 
 from agent.db_backend import connect
+
+logger = logging.getLogger(__name__)
 
 _B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"  # Crockford base32
 
@@ -38,7 +41,7 @@ def _vec_lit(vec) -> str:
 
 
 def _sanitize_fts(query: str) -> str:
-    toks = re.findall(r"[A-Za-z0-9]+", query or "")
+    toks = re.findall(r"\w+", query or "", re.UNICODE)
     return " OR ".join(f'"{t}"' for t in toks) if toks else '""'
 
 
@@ -161,7 +164,8 @@ class TursoMemoryStore:
                 (_sanitize_fts(query), limit),
             ).fetchall()
             return [r["id"] for r in rows]
-        except Exception:
+        except Exception as exc:
+            logger.debug("turso_memory fts_search failed: %s", exc)
             return []
 
     def vector_search(self, query_vec, limit: int = 50) -> list[str]:
@@ -175,7 +179,8 @@ class TursoMemoryStore:
                 (_vec_lit(query_vec), limit),
             ).fetchall()
             return [r["id"] for r in rows]
-        except Exception:
+        except Exception as exc:
+            logger.debug("turso_memory vector_search failed: %s", exc)
             return []
 
     def rows_for(self, ids) -> dict:

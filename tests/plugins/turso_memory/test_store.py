@@ -6,8 +6,12 @@ def _store(tmp_path) -> TursoMemoryStore:
 
 
 def test_new_ulid_unique_and_sortable():
-    a, b = new_ulid(), new_ulid()
+    import time
+    a = new_ulid()
+    time.sleep(0.002)
+    b = new_ulid()
     assert a != b and len(a) == len(b) == 26
+    assert a < b        # ULIDs are lexicographically time-sortable
 
 
 def test_add_then_get_roundtrip(tmp_path):
@@ -35,6 +39,14 @@ def test_fts_search_finds_added_row(tmp_path):
     ids = s.fts_search("eagles")
     rows = s.rows_for(ids)
     assert any("eagles" in rows[i]["content"] for i in ids)
+    s.close()
+
+
+def test_fts_search_unicode_arabic(tmp_path):
+    s = _store(tmp_path)
+    mid = s.add("القاهرة مدينة", embedding=[1.0, 0.0, 0.0], embed_model="fake/3")
+    ids = s.fts_search("القاهرة")
+    assert mid in ids        # Unicode-aware tokenizer recalls non-Latin content
     s.close()
 
 
