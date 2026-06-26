@@ -30,7 +30,15 @@ def execute_durable_step(step: dict) -> dict:
     """Run one durable step as a single subagent delegation. Pure of Temporal."""
     _install_worker_approval_callback()
     handler = _delegate_handler()
-    raw = handler({"goal": step["prompt"], "sub_agent": step.get("sub_agent")})
+    # Forward the delegation parameters the subagent runner honours so a durable
+    # delegation actually runs with the requested context/toolsets/role instead
+    # of silently falling back to defaults. (delegate_task ignores model/sub_agent,
+    # so we don't forward those.)
+    call = {"goal": step["prompt"], "sub_agent": step.get("sub_agent")}
+    for key in ("context", "toolsets", "role"):
+        if step.get(key) is not None:
+            call[key] = step[key]
+    raw = handler(call)
     text = raw if isinstance(raw, str) else json.dumps(raw)
     try:
         parsed = json.loads(text)

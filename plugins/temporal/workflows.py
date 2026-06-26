@@ -54,7 +54,13 @@ try:
                 initial_interval=timedelta(seconds=int(retry.get("initial_interval_seconds", 1))),
                 backoff_coefficient=float(retry.get("backoff_coefficient", 2.0)),
             )
-            step = {"name": "delegation", "prompt": params["goal"]}
+            step = {
+                "name": "delegation",
+                "prompt": params["goal"],
+                "context": params.get("context"),
+                "toolsets": params.get("toolsets"),
+                "role": params.get("role"),
+            }
             result = await _wf.execute_activity(
                 "run_step", step,
                 start_to_close_timeout=timedelta(seconds=timeout_s), retry_policy=policy,
