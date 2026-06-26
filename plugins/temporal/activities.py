@@ -49,6 +49,45 @@ def execute_durable_step(step: dict) -> dict:
     return {"name": step.get("name", ""), "ok": ok, "result": result}
 
 
+def _make_run_kanban_worker(heartbeat=None, sleep=None):
+    """Factory so the poll loop is unit-testable without a Temporal context.
+
+    Returns a blocking callable ``(payload: dict) -> dict`` that:
+    - Popens the card's subprocess via ``kanban_db._popen_from_spawn_args``
+    - Heartbeats while the process runs
+    - Reaps the exit code via ``kanban_db.reap_temporal_worker``
+    """
+    import time as _time
+    from hermes_cli import kanban_db
+
+    _sleep = sleep if sleep is not None else _time.sleep
+
+    def _run(payload: dict) -> dict:
+        _hb = heartbeat
+        if _hb is None:
+            from temporalio import activity  # type: ignore
+            _hb = activity.heartbeat
+        task_id = payload["task_id"]
+        board = payload.get("board")
+        poll = int(payload.get("poll_seconds", 5))
+        proc = kanban_db._popen_from_spawn_args(payload["spawn_args"])
+        while proc.poll() is None:
+            _hb({"task_id": task_id, "pid": getattr(proc, "pid", None)})
+            _sleep(poll)
+        exit_code = int(proc.poll() or 0)
+        conn = kanban_db.connect(board=board)
+        try:
+            reap = kanban_db.reap_temporal_worker(conn, task_id, exit_code, board=board)
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return {"exit_code": exit_code, "reap": reap}
+
+    return _run
+
+
 # Temporal activity wrappers — imported lazily so non-temporal runs never import temporalio.
 def _make_activities():
     from temporalio import activity  # type: ignore
@@ -84,7 +123,15 @@ def _make_activities():
             return run_one_job(job)
         return await _a.to_thread(_fire)
 
-    return [run_step_activity, record_outbox_activity, fire_cron_job_activity]
+    @activity.defn(name="run_kanban_worker")
+    async def run_kanban_worker_activity(payload: dict) -> dict:
+        import time as _t
+        return await asyncio.to_thread(
+            _make_run_kanban_worker(heartbeat=activity.heartbeat, sleep=_t.sleep),
+            payload,
+        )
+
+    return [run_step_activity, record_outbox_activity, fire_cron_job_activity, run_kanban_worker_activity]
 
 
 def _make_activity():
