@@ -14,11 +14,18 @@ def job_to_spec(job: dict) -> dict[str, Any]:
     sched = job.get("schedule") or {}
     kind = sched.get("kind")
     from cron.jobs import _compute_grace_seconds  # bounded catch-up
+    # Resolve the configured Hermes timezone so that recurring cron jobs fire
+    # at the correct wall-clock time, matching the built-in ticker.  Jobs have
+    # no per-job ``timezone`` key; the timezone is a global Hermes config
+    # setting.  Using ``job.get("timezone")`` always returned None → UTC,
+    # causing non-UTC deployments to fire at the wrong time.
+    import hermes_time as _hermes_time
+    _configured_tz: str = _hermes_time._resolve_timezone_name() or "UTC"
     out: dict[str, Any] = {
         "kind": kind,
         "overlap": "skip",
         "catchup_seconds": int(_compute_grace_seconds(sched)),
-        "time_zone": job.get("timezone") or "UTC",
+        "time_zone": _configured_tz,
     }
     if kind == "cron":
         out["cron"] = sched["expr"]

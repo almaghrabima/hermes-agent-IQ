@@ -1,14 +1,16 @@
+import hermes_time
 from plugins.cron_providers.temporal import schedules as S
 
-def _job(jid, sched, enabled=True, tz=None):
-    return {"id": jid, "schedule": sched, "enabled": enabled, "timezone": tz}
+def _job(jid, sched, enabled=True):
+    return {"id": jid, "schedule": sched, "enabled": enabled}
 
 def test_schedule_id_namespaced():
     assert S.schedule_id("abc") == "hermes-cron-abc"
     assert S.schedule_id("abc").startswith(S.SCHEDULE_PREFIX)
 
-def test_cron_job_maps_to_cron_spec():
-    spec = S.job_to_spec(_job("j1", {"kind": "cron", "expr": "0 9 * * *"}, tz="UTC"))
+def test_cron_job_maps_to_cron_spec(monkeypatch):
+    monkeypatch.setattr(hermes_time, "_resolve_timezone_name", lambda: "UTC")
+    spec = S.job_to_spec(_job("j1", {"kind": "cron", "expr": "0 9 * * *"}))
     assert spec["kind"] == "cron"
     assert spec["cron"] == "0 9 * * *"
     assert spec["time_zone"] == "UTC"
@@ -35,3 +37,19 @@ def test_plan_reconcile_upserts_enabled_deletes_orphans():
     assert "a" in plan["upsert"]
     assert "b" not in plan["upsert"]
     assert "hermes-cron-gone" in plan["delete"]
+
+
+# ── Timezone correctness ──────────────────────────────────────────────────────
+
+def test_cron_uses_configured_timezone(monkeypatch):
+    """job_to_spec must use the CONFIGURED Hermes timezone, not a per-job key."""
+    monkeypatch.setattr(hermes_time, "_resolve_timezone_name", lambda: "America/New_York")
+    spec = S.job_to_spec(_job("j4", {"kind": "cron", "expr": "0 9 * * *"}))
+    assert spec["time_zone"] == "America/New_York"
+
+
+def test_cron_defaults_utc_when_unset(monkeypatch):
+    """job_to_spec must fall back to UTC when no timezone is configured."""
+    monkeypatch.setattr(hermes_time, "_resolve_timezone_name", lambda: "")
+    spec = S.job_to_spec(_job("j5", {"kind": "cron", "expr": "0 9 * * *"}))
+    assert spec["time_zone"] == "UTC"

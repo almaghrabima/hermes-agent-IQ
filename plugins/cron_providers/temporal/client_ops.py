@@ -22,13 +22,20 @@ def build_schedule(spec: dict, *, job_id: str, task_queue: str):
         sspec = ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(seconds=spec["every_seconds"]))])
         state = ScheduleState()
     elif kind == "once":
+        # One-shots represent an absolute instant.  Convert to UTC before
+        # extracting calendar fields so that a run_at with a non-UTC offset
+        # (e.g. "2026-07-01T09:00:00-04:00") fires at the correct UTC wall
+        # clock time (13:00 UTC) rather than the bare local hour (09:00 UTC).
+        from datetime import timezone as _tz
         dt = datetime.fromisoformat(spec["run_at"])
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(_tz.utc)
         cal = ScheduleCalendarSpec(
             year=[ScheduleRange(dt.year)], month=[ScheduleRange(dt.month)],
             day_of_month=[ScheduleRange(dt.day)], hour=[ScheduleRange(dt.hour)],
             minute=[ScheduleRange(dt.minute)],
         )
-        sspec = ScheduleSpec(calendars=[cal], time_zone_name=spec.get("time_zone", "UTC"))
+        sspec = ScheduleSpec(calendars=[cal], time_zone_name="UTC")
         state = ScheduleState(limited_actions=True, remaining_actions=int(spec.get("remaining_actions", 1)))
     else:
         raise ValueError(f"unsupported kind {kind!r}")
