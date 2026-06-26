@@ -207,3 +207,64 @@ def test_reconcile_drops_removed_builtin_entries(tmp_path, monkeypatch):
     out = json.loads(p.handle_tool_call("memory", {"action": "recall", "query": "remove this"}))
     assert not any("remove this" in m["content"] for m in out["results"])
     p.shutdown()
+
+# ---------- FIX I3 — reconcile must not purge builtins when syncing ----------
+
+def test_reconcile_does_not_purge_builtins_when_syncing(tmp_path, monkeypatch):
+    """With sync active, reconcile must NOT delete a builtin row absent from local .md.
+
+    Each device has its own .md files; Device B must not purge Device A's mirrored
+    builtins that aren't in B's local file — they are valid rows on the shared replica.
+    """
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    mem_dir = tmp_path / "memories"
+    mem_dir.mkdir(parents=True)
+
+    # Both entries start in the .md file
+    (mem_dir / "MEMORY.md").write_text(
+        "device-a-entry" + ENTRY_DELIMITER + "device-b-entry",
+        encoding="utf-8",
+    )
+
+    p = TursoMemoryProvider(config={"embedding": {"mode": "local"}})
+    p._encoder = FakeEncoder()
+    p.initialize(session_id="s1")
+    assert p._store.count() == 2
+
+    # Simulate Device B: its .md file only has its own entry
+    (mem_dir / "MEMORY.md").write_text("device-b-entry", encoding="utf-8")
+
+    # Simulate sync being active — mark the store as synced
+    from agent.db_backend import SyncConfig
+    fake_sync = SyncConfig(sync_url="libsql://fake.turso.io", auth_token="tok")
+    p._store._sync = fake_sync
+
+    # Reconcile with sync active: device-a-entry must NOT be purged
+    p.on_session_switch("s2", reset=True)
+    assert p._store.count() == 2, (
+        "Sync-mode reconcile must not purge cross-device builtins"
+    )
+    p.shutdown()
+
+
+def test_reconcile_purges_builtins_when_not_syncing(tmp_path, monkeypatch):
+    """Without sync (local-only mode), reconcile MUST purge builtins missing from local .md."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    mem_dir = tmp_path / "memories"
+    mem_dir.mkdir(parents=True)
+    (mem_dir / "MEMORY.md").write_text(
+        "keep this" + ENTRY_DELIMITER + "will be removed",
+        encoding="utf-8",
+    )
+
+    p = TursoMemoryProvider(config={"embedding": {"mode": "local"}})
+    p._encoder = FakeEncoder()
+    p.initialize(session_id="s1")
+    assert p._store.count() == 2
+    assert p._store._sync is None   # no sync configured
+
+    # Remove one entry — local-only mode must purge it on next reconcile
+    (mem_dir / "MEMORY.md").write_text("keep this", encoding="utf-8")
+    p.on_session_switch("s2", reset=True)
+    assert p._store.count() == 1, "Non-sync reconcile must purge missing builtins"
+    p.shutdown()

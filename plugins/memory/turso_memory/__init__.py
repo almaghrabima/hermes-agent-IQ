@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import threading
 from typing import Any, Dict, List
 
 from agent.memory_provider import MemoryProvider
@@ -54,6 +56,10 @@ class TursoMemoryProvider(MemoryProvider):
         self._encoder = None
         self._encoder_failed = False
         self._session_id = ""
+        # Background prefetch state (I2: recall must not block the main turn loop)
+        self._prefetch_lock = threading.Lock()
+        self._prefetch_result: dict[str, str] = {}   # keyed by session_id
+        self._prefetch_thread: threading.Thread | None = None
 
     @property
     def name(self) -> str:
@@ -105,6 +111,69 @@ class TursoMemoryProvider(MemoryProvider):
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         return [MEMORY_TOOL_SCHEMA]
 
+    def get_config_schema(self):
+        """Config schema for `hermes memory setup`.
+
+        Secrets (api key) go to .env; non-secret settings go to config.yaml.
+        This mirrors the mem0 plugin pattern exactly.
+        """
+        return [
+            {
+                "key": "TURSO_MEMORY_EMBED_API_KEY",
+                "description": "API key for OpenAI-compatible embedding endpoint (api mode only)",
+                "secret": True,
+                "required": False,
+                "env_var": "TURSO_MEMORY_EMBED_API_KEY",
+            },
+            {
+                "key": "sync_url",
+                "description": (
+                    "Turso sync URL for cross-device memory "
+                    "(libsql://... from Turso dashboard). Omit for local-only."
+                ),
+                "secret": False,
+                "required": False,
+            },
+            {
+                "key": "sync_interval",
+                "description": "Sync interval in seconds",
+                "secret": False,
+                "required": False,
+                "default": "60",
+            },
+            {
+                "key": "embedding.mode",
+                "description": (
+                    "Embedding mode: 'local' (fastembed, privacy-first, no API key) "
+                    "or 'api' (OpenAI-compatible)"
+                ),
+                "secret": False,
+                "required": False,
+                "default": "local",
+                "choices": ["local", "api"],
+            },
+            {
+                "key": "embedding.model",
+                "description": "Embedding model name (local: BAAI/bge-m3; api: text-embedding-3-small)",
+                "secret": False,
+                "required": False,
+                "default": "BAAI/bge-m3",
+            },
+            {
+                "key": "embedding.api.base_url",
+                "description": "Base URL for OpenAI-compatible embedding API (api mode only)",
+                "secret": False,
+                "required": False,
+            },
+            {
+                "key": "embedding.api.dim",
+                "description": "Vector dimension for api mode (must match the model)",
+                "secret": False,
+                "required": False,
+                "default": "1536",
+            },
+        ]
+
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         if tool_name != "memory" or not self._store:
             return tool_error(f"Unknown tool: {tool_name}")
@@ -148,17 +217,48 @@ class TursoMemoryProvider(MemoryProvider):
         self._store.bump_recall([r["id"] for r in ranked])
         return [{"id": r["id"], "content": r["content"], "score": round(r["_score"], 4)} for r in ranked]
 
+    def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
+        """Queue background recall so the next prefetch() call is fast (no I/O on hot path).
+
+        Mirrors the mem0/supermemory/hindsight pattern: compute the recall block
+        on a background thread and cache it keyed by session_id; prefetch() simply
+        returns the cached string.
+        """
+        if not self._store or not query:
+            return
+        _sid = session_id or ""
+
+        def _run() -> None:
+            try:
+                results = self._recall(query, 5)
+            except Exception:
+                return
+            if not results:
+                return
+            lines = "\n".join(f"- {r['content']}" for r in results)
+            block = "## Long-term memory\n" + lines
+            with self._prefetch_lock:
+                self._prefetch_result[_sid] = block
+
+        self._prefetch_thread = threading.Thread(
+            target=_run, daemon=True, name="turso-prefetch"
+        )
+        self._prefetch_thread.start()
+
     def prefetch(self, query: str, *, session_id: str = "") -> str:
+        """Return the recall block cached by the previous queue_prefetch() call.
+
+        This must be FAST — no embedding inference or DB calls on the hot path.
+        If queue_prefetch() hasn't finished yet, we wait up to 3 s (it's normally
+        done well within one turn); if it's still not done, we return "" and the
+        next turn will get it.
+        """
         if not self._store or not query:
             return ""
-        try:
-            results = self._recall(query, 5)
-        except Exception:
-            return ""
-        if not results:
-            return ""
-        lines = "\n".join(f"- {r['content']}" for r in results)
-        return "## Long-term memory\n" + lines
+        if self._prefetch_thread and self._prefetch_thread.is_alive():
+            self._prefetch_thread.join(timeout=3.0)
+        with self._prefetch_lock:
+            return self._prefetch_result.pop(session_id or "", "")
 
     def sync_turn(self, user_content, assistant_content, *, session_id="", messages=None) -> None:
         # Capture is explicit (memory tool) + built-in mirror; turns are not auto-stored.
@@ -240,13 +340,17 @@ class TursoMemoryProvider(MemoryProvider):
             kind = "file_user" if target == "user" else "file_memory"
             self._store.add(content, kind=kind, source="builtin",
                             source_key=key, embedding=None, embed_model=None)
-        # drop builtin rows that no longer exist in the source files
-        rows = self._store._conn.execute(
-            "SELECT id, source_key FROM memories WHERE source = 'builtin'"
-        ).fetchall()
-        for row in rows:
-            if row["source_key"] not in wanted:
-                self._store.remove(row["id"])
+        # Drop builtin rows absent from the local .md files, but ONLY when NOT syncing.
+        # With sync active the DB is shared across devices, and each device has its
+        # own .md files; Device B must not purge Device A's mirrored builtins that
+        # are absent from B's local file — they are valid rows on the shared replica.
+        if not getattr(self._store, "_sync", None):
+            rows = self._store._conn.execute(
+                "SELECT id, source_key FROM memories WHERE source = 'builtin'"
+            ).fetchall()
+            for row in rows:
+                if row["source_key"] not in wanted:
+                    self._store.remove(row["id"])
 
     def on_session_switch(self, new_session_id: str, *, parent_session_id: str = "",
                           reset: bool = False, rewound: bool = False, **kwargs) -> None:
@@ -276,6 +380,8 @@ class TursoMemoryProvider(MemoryProvider):
         return n
 
     def shutdown(self) -> None:
+        if self._prefetch_thread and self._prefetch_thread.is_alive():
+            self._prefetch_thread.join(timeout=3.0)
         if self._store:
             try:
                 self._store.close()

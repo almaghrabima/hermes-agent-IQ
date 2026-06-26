@@ -97,6 +97,7 @@ class TursoMemoryStore:
     def __init__(self, db_path, dim: int, sync=None):
         self.db_path = Path(db_path)
         self.dim = int(dim)
+        self._sync = sync   # None = local-only; non-None = multi-device sync active
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         # prefer_libsql=True → local libSQL when sync is None, so native vector
@@ -171,18 +172,20 @@ class TursoMemoryStore:
 
     # ---- reads ----
     def get(self, mem_id) -> dict | None:
-        row = self._conn.execute(
-            f"SELECT {','.join(_COLS)} FROM memories WHERE id = ?", (mem_id,)
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT {','.join(_COLS)} FROM memories WHERE id = ?", (mem_id,)
+            ).fetchone()
         return {c: row[c] for c in _COLS} if row else None
 
     def fts_search(self, query, limit: int = 50) -> list[str]:
         try:
-            rows = self._conn.execute(
-                "SELECT m.id FROM memories_fts f JOIN memories m ON m.rowid = f.rowid "
-                "WHERE memories_fts MATCH ? ORDER BY bm25(memories_fts) LIMIT ?",
-                (_sanitize_fts(query), limit),
-            ).fetchall()
+            with self._lock:
+                rows = self._conn.execute(
+                    "SELECT m.id FROM memories_fts f JOIN memories m ON m.rowid = f.rowid "
+                    "WHERE memories_fts MATCH ? ORDER BY bm25(memories_fts) LIMIT ?",
+                    (_sanitize_fts(query), limit),
+                ).fetchall()
             return [r["id"] for r in rows]
         except Exception as exc:
             logger.debug("turso_memory fts_search failed: %s", exc)
@@ -199,18 +202,19 @@ class TursoMemoryStore:
         if not query_vec:
             return []
         try:
-            if embed_model is not None:
-                rows = self._conn.execute(
-                    "SELECT id FROM memories WHERE embedding IS NOT NULL AND embed_model = ? "
-                    "ORDER BY vector_distance_cos(embedding, vector32(?)) ASC LIMIT ?",
-                    (embed_model, _vec_lit(query_vec), limit),
-                ).fetchall()
-            else:
-                rows = self._conn.execute(
-                    "SELECT id FROM memories WHERE embedding IS NOT NULL "
-                    "ORDER BY vector_distance_cos(embedding, vector32(?)) ASC LIMIT ?",
-                    (_vec_lit(query_vec), limit),
-                ).fetchall()
+            with self._lock:
+                if embed_model is not None:
+                    rows = self._conn.execute(
+                        "SELECT id FROM memories WHERE embedding IS NOT NULL AND embed_model = ? "
+                        "ORDER BY vector_distance_cos(embedding, vector32(?)) ASC LIMIT ?",
+                        (embed_model, _vec_lit(query_vec), limit),
+                    ).fetchall()
+                else:
+                    rows = self._conn.execute(
+                        "SELECT id FROM memories WHERE embedding IS NOT NULL "
+                        "ORDER BY vector_distance_cos(embedding, vector32(?)) ASC LIMIT ?",
+                        (_vec_lit(query_vec), limit),
+                    ).fetchall()
             return [r["id"] for r in rows]
         except Exception as exc:
             logger.debug("turso_memory vector_search failed: %s", exc)
@@ -221,19 +225,22 @@ class TursoMemoryStore:
         if not ids:
             return {}
         qs = ",".join("?" for _ in ids)
-        rows = self._conn.execute(
-            f"SELECT {','.join(_COLS)} FROM memories WHERE id IN ({qs})", tuple(ids)
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {','.join(_COLS)} FROM memories WHERE id IN ({qs})", tuple(ids)
+            ).fetchall()
         return {r["id"]: {c: r[c] for c in _COLS} for r in rows}
 
     def find_by_source_key(self, source_key: str) -> str | None:
-        row = self._conn.execute(
-            "SELECT id FROM memories WHERE source_key = ?", (source_key,)
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id FROM memories WHERE source_key = ?", (source_key,)
+            ).fetchone()
         return row["id"] if row else None
 
     def count(self) -> int:
-        return self._conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+        with self._lock:
+            return self._conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
 
     def close(self) -> None:
         with self._lock:

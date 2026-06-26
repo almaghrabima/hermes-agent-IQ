@@ -4,6 +4,7 @@ callers treat EncoderUnavailable / runtime failures as 'no embedding'."""
 from __future__ import annotations
 
 import logging
+import os
 from typing import Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
@@ -78,11 +79,20 @@ def get_encoder(config: dict) -> Encoder:
     if mode == "local":
         return LocalEncoder(model=(config or {}).get("model", "BAAI/bge-m3"))
     if mode == "api":
-        api = (config or {}).get("api", {})
-        if not api.get("base_url") or not api.get("api_key"):
-            raise EncoderUnavailable("api embedding mode requires base_url and api_key")
+        api = (config or {}).get("api", {}) or {}
+        # Repo rule: secrets live in .env, not config.yaml.
+        # Read the embedding API key from TURSO_MEMORY_EMBED_API_KEY first;
+        # config.yaml provides only non-secret fields (base_url, model, dim).
+        # Falling back to api.api_key for back-compat, but env takes precedence.
+        api_key = os.environ.get("TURSO_MEMORY_EMBED_API_KEY") or api.get("api_key", "")
+        if not api.get("base_url") or not api_key:
+            raise EncoderUnavailable(
+                "api embedding mode requires base_url in config and "
+                "TURSO_MEMORY_EMBED_API_KEY in .env "
+                "(or api.api_key in config for back-compat)"
+            )
         return ApiEncoder(
-            base_url=api["base_url"], api_key=api["api_key"],
+            base_url=api["base_url"], api_key=api_key,
             model=api.get("model", "text-embedding-3-small"), dim=int(api.get("dim", 1536)),
         )
     raise EncoderUnavailable(f"unknown embedding mode: {mode!r}")

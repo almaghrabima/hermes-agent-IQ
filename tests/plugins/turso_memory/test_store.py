@@ -1,3 +1,6 @@
+import pytest
+pytest.importorskip("libsql")  # skip whole module when libsql is absent
+
 from plugins.memory.turso_memory.store import TursoMemoryStore, new_ulid, builtin_source_key
 
 
