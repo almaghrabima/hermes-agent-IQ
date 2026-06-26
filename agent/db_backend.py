@@ -90,3 +90,24 @@ def resolve_sync_config(label: str) -> SyncConfig | None:
         sync_interval=sync_interval,
         local_path=local_path,
     )
+
+
+def connect(
+    db_path: Any,
+    *,
+    label: str,
+    sync: SyncConfig | None = None,
+    **sqlite_kwargs: Any,
+) -> sqlite3.Connection:
+    """Open a database connection.
+
+    ``sync=None`` (default) → stdlib ``sqlite3.connect`` (unchanged behaviour).
+    ``sync`` set → a libSQL embedded replica (see ``_connect_turso``).
+    """
+    if sync is None:
+        return sqlite3.connect(db_path, **sqlite_kwargs)
+    return _connect_turso(db_path, label=label, sync=sync, **sqlite_kwargs)
+
+
+def _connect_turso(db_path, *, label, sync, **sqlite_kwargs):  # implemented in Task 3
+    raise NotImplementedError("Turso backend lands in Task 3")
