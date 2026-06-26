@@ -54,17 +54,32 @@ try:
                 initial_interval=timedelta(seconds=int(retry.get("initial_interval_seconds", 1))),
                 backoff_coefficient=float(retry.get("backoff_coefficient", 2.0)),
             )
-            step = {"name": "delegation", "prompt": params["goal"]}
-            result = await _wf.execute_activity(
-                "run_step", step,
-                start_to_close_timeout=timedelta(seconds=timeout_s), retry_policy=policy,
-            )
+            step = {
+                "name": "delegation",
+                "prompt": params["goal"],
+                "context": params.get("context"),
+                "toolsets": params.get("toolsets"),
+                "role": params.get("role"),
+            }
+            try:
+                result = await _wf.execute_activity(
+                    "run_step", step,
+                    start_to_close_timeout=timedelta(seconds=timeout_s), retry_policy=policy,
+                )
+                ok = bool(result.get("ok"))
+                summary = result.get("result")
+                error = None if ok else result.get("result")
+            except Exception as exc:  # activity exhausted its retries
+                # Record the failure durably instead of letting the workflow fail
+                # silently — otherwise the user never learns the delegation died.
+                ok, summary, error = False, None, f"durable delegation failed: {exc}"
             block = {
                 "goal": params.get("goal", ""), "context": params.get("context"),
                 "toolsets": params.get("toolsets"), "role": params.get("role"),
                 "model": params.get("model"),
-                "summary": result.get("result"), "error": None if result.get("ok") else result.get("result"),
-                "status": "completed" if result.get("ok") else "failed",
+                "summary": summary,
+                "error": error,
+                "status": "completed" if ok else "failed",
             }
             await _wf.execute_activity(
                 "record_outbox",

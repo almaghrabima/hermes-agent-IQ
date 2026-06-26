@@ -14,6 +14,11 @@ def _db_path() -> Path:
 
 def _conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(_db_path()), isolation_level=None, check_same_thread=False)
+    # The worker process writes while the Hermes process drains (BEGIN IMMEDIATE)
+    # against the same file. Wait on lock contention instead of failing immediately
+    # with "database is locked" — explicit so the guarantee doesn't ride on CPython's
+    # sqlite3 connect(timeout=5.0) default.
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS outbox ("
         " run_id TEXT PRIMARY KEY, session_key TEXT NOT NULL, status TEXT NOT NULL,"
@@ -43,7 +48,16 @@ def has_run(run_id: str) -> bool:
             conn.close()
 
 def claim_undelivered(session_keys: list[str], limit: int = 50) -> list[dict[str, Any]]:
-    """Atomically fetch + mark-delivered undelivered rows for the given session keys."""
+    """Atomically fetch + mark-delivered undelivered rows for the given session keys.
+
+    Deliberately at-most-once: a row is marked delivered at claim time, so a crash
+    between this call and the result reaching the conversation drops that result
+    (reconcile won't recover it — has_run is already true). The larger durability
+    gap (a delegation completing while no Hermes process is alive) is covered by
+    reconcile + record_completion idempotency; only the sub-second claim->consume
+    window is exposed. At-least-once would need an ack-after-consume across the
+    CLI/gateway/TUI consumers and risks duplicate delivery — intentionally not done.
+    """
     if not session_keys:
         return []
     with _lock:
