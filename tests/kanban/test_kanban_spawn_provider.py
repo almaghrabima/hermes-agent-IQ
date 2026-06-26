@@ -28,10 +28,13 @@ def test_temporal_selected_and_enabled_returns_tagged_callable(monkeypatch):
 
 
 def test_temporal_enabled_but_import_fails_falls_back_to_builtin(monkeypatch):
-    import sys
+    import sys, types
     from hermes_cli import kanban_db
     from hermes_cli.kanban_spawn_provider import resolve_kanban_spawn
-    monkeypatch.delitem(sys.modules, "plugins.kanban_spawn_temporal", raising=False)
+    # Force the `from plugins.kanban_spawn_temporal import temporal_kanban_spawn`
+    # to raise ImportError by stubbing a module WITHOUT that attribute.
+    broken = types.ModuleType("plugins.kanban_spawn_temporal")
+    monkeypatch.setitem(sys.modules, "plugins.kanban_spawn_temporal", broken)
     cfg = {"kanban": {"spawn_provider": "temporal"}, "temporal": {"enabled": True}}
     fn = resolve_kanban_spawn(cfg)
     assert fn is kanban_db._default_spawn
