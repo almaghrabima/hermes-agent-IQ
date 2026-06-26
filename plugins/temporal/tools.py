@@ -6,7 +6,7 @@ import uuid
 from hermes_cli.config import load_config
 from plugins.temporal.tconfig import resolve_temporal_config
 from plugins.temporal.client import connect
-from plugins.temporal import outbox as _outbox
+from plugins.temporal import outbox as _outbox  # human-input authz/waiting + reconcile skip-list
 
 DURABLE_RUN_SCHEMA = {
     "name": "durable_run",
