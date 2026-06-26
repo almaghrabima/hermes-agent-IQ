@@ -255,6 +255,11 @@ def rlm_tool(query, context=None, input_path=None, primary_agent=None,
                     "rlm durable=true requires temporal.enabled; see docs/temporal/. "
                     "Not falling back to a non-durable run.")
             rlm_cfg = _load_rlm_config()
+            # rlm_args carries ONLY the user-supplied call args — NOT resolved
+            # config or credentials. The worker resolves rlm config + creds from
+            # its own config.yaml at activity time (run_rlm_durable calls the sync
+            # rlm_tool). This keeps secrets out of the Temporal payload/history;
+            # do not "enrich" rlm_args with resolved config here.
             rlm_args = {
                 "query": query, "context": context, "input_path": input_path,
                 "primary_agent": primary_agent, "sub_agent": sub_agent,
