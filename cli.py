@@ -12395,6 +12395,18 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             ] if item is not None
         ]
 
+    def _drain_durable_outbox(self) -> list:
+        """Claim durable-delegation completions for THIS CLI session.
+
+        Durable delegations are recorded in the outbox under the live session
+        key (``get_current_session_key()`` == ``self.session_id``), so the drain
+        must use that key — not a hardcoded "default", which would never match a
+        normal CLI session id and would silently drop every durable completion.
+        """
+        from plugins.temporal.delivery import drain_outbox_for_sessions
+
+        return drain_outbox_for_sessions([self.session_id or "default"])
+
     def run(self):
         """Run the interactive CLI loop with persistent input at bottom."""
         if not self._claim_active_session("cli"):
@@ -14439,9 +14451,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                             # Drain durable-delegation outbox rows from Temporal into
                             # the completion queue so they re-enter the conversation.
                             try:
-                                from plugins.temporal.delivery import drain_outbox_for_sessions
                                 from tools.process_registry import process_registry
-                                for _evt in drain_outbox_for_sessions(["default"]):
+                                for _evt in self._drain_durable_outbox():
                                     process_registry.completion_queue.put(_evt)
                             except Exception:
                                 pass
