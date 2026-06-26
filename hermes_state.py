@@ -23,6 +23,7 @@ import threading
 import time
 from pathlib import Path
 
+from agent.db_backend import connect as _backend_connect, resolve_sync_config
 from agent.memory_manager import sanitize_context
 from hermes_constants import get_hermes_home
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
@@ -720,8 +721,11 @@ class SessionDB:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
             def _connect_and_init():
-                self._conn = sqlite3.connect(
+                sync = resolve_sync_config("state.db")
+                self._conn = _backend_connect(
                     str(self.db_path),
+                    label="state.db",
+                    sync=sync,
                     check_same_thread=False,
                     # Short timeout — application-level retry with random
                     # jitter handles contention instead of sitting in
@@ -733,7 +737,8 @@ class SessionDB:
                     isolation_level=None,
                 )
                 self._conn.row_factory = sqlite3.Row
-                apply_wal_with_fallback(self._conn, db_label="state.db")
+                if sync is None:
+                    apply_wal_with_fallback(self._conn, db_label="state.db")
                 self._conn.execute("PRAGMA foreign_keys=ON")
                 self._init_schema()
 
