@@ -141,7 +141,8 @@ class TursoMemoryProvider(MemoryProvider):
             return []
         vec, _ = self._embed(query)
         fts_ids = self._store.fts_search(query, limit=max(20, k * 4))
-        vec_ids = self._store.vector_search(vec, limit=max(20, k * 4)) if vec else []
+        active_model = self._encoder.model_id if self._encoder else None
+        vec_ids = self._store.vector_search(vec, limit=max(20, k * 4), embed_model=active_model) if vec else []
         rows = self._store.rows_for(set(fts_ids) | set(vec_ids))
         ranked = fuse_and_rank(fts_ids, vec_ids, rows, k=k)
         self._store.bump_recall([r["id"] for r in ranked])
@@ -194,11 +195,19 @@ class TursoMemoryProvider(MemoryProvider):
         )
 
     def _reconcile_builtin(self) -> None:
-        """Import (or refresh) built-in MEMORY.md / USER.md entries into the store.
+        """Import built-in MEMORY.md / USER.md entries into the store.
 
         Uses the same entry delimiter as tools/memory_tool.py: ENTRY_DELIMITER = "\\n§\\n".
         Rows are keyed by builtin_source_key() — the same deterministic helper used
-        in on_memory_write() — so re-running is idempotent (upsert, not duplicate).
+        in on_memory_write() — so re-running is idempotent.
+
+        Embedding policy:
+        - NEW entries are inserted with embedding=None (no encoder call).  Vectors
+          fill in later via reindex() or on_memory_write() when the encoder is ready.
+          This avoids forcing a fastembed model download at agent startup and prevents
+          a dead/offline encoder from wiping stored vectors during reset-reconcile.
+        - EXISTING entries (source_key already in the store) are skipped entirely —
+          content is content-derived (key == content hash) so it cannot have changed.
         Rows that have been removed from the source files are purged.
         """
         from hermes_constants import get_hermes_home
@@ -223,12 +232,14 @@ class TursoMemoryProvider(MemoryProvider):
                 wanted[key] = (target, entry)
         if not self._store:
             return
-        # add / refresh wanted entries (upsert via source_key unique index)
+        # Insert only NEW entries — skip existing ones (content is key-stable).
+        # Never call _embed here; vectors fill via reindex / on_memory_write.
         for key, (target, content) in wanted.items():
-            vec, model = self._embed(content)
+            if self._store.find_by_source_key(key) is not None:
+                continue   # already present — no re-embed, no update
             kind = "file_user" if target == "user" else "file_memory"
             self._store.add(content, kind=kind, source="builtin",
-                            source_key=key, embedding=vec, embed_model=model)
+                            source_key=key, embedding=None, embed_model=None)
         # drop builtin rows that no longer exist in the source files
         rows = self._store._conn.execute(
             "SELECT id, source_key FROM memories WHERE source = 'builtin'"

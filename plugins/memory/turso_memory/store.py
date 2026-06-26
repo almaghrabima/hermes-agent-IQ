@@ -21,8 +21,12 @@ _B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"  # Crockford base32
 
 
 def builtin_source_key(target: str, content: str) -> str:
-    """Deterministic, cross-process-stable key for mirrored built-in entries."""
-    digest = hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
+    """Deterministic, cross-process-stable key for mirrored built-in entries.
+
+    Content is stripped before hashing so that the incremental on_memory_write
+    key always matches the reconcile key (reconcile strips file entries).
+    """
+    digest = hashlib.md5(content.strip().encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
     return f"builtin:{target}:{digest}"
 
 
@@ -116,11 +120,20 @@ class TursoMemoryStore:
                 ).fetchone()
                 if existing:
                     mid = existing["id"]
-                    self._conn.execute(
-                        f"UPDATE memories SET content=?, embedding={emb_sql}, embed_model=?, "
-                        f"updated_at=? WHERE id=?",
-                        (content, *emb_params, embed_model, _now(), mid),
-                    )
+                    if embedding:
+                        # Provided embedding: update content + vector fields.
+                        self._conn.execute(
+                            f"UPDATE memories SET content=?, embedding={emb_sql}, embed_model=?, "
+                            f"updated_at=? WHERE id=?",
+                            (content, *emb_params, embed_model, _now(), mid),
+                        )
+                    else:
+                        # No embedding: update content/timestamp only — never
+                        # overwrite a stored vector with NULL.
+                        self._conn.execute(
+                            "UPDATE memories SET content=?, updated_at=? WHERE id=?",
+                            (content, _now(), mid),
+                        )
                     return mid
             mid = new_ulid()
             now = _now()
@@ -175,16 +188,29 @@ class TursoMemoryStore:
             logger.debug("turso_memory fts_search failed: %s", exc)
             return []
 
-    def vector_search(self, query_vec, limit: int = 50) -> list[str]:
-        """Native in-database nearest-neighbour by cosine distance."""
+    def vector_search(self, query_vec, limit: int = 50, embed_model=None) -> list[str]:
+        """Native in-database nearest-neighbour by cosine distance.
+
+        When *embed_model* is provided, only rows whose ``embed_model`` column
+        matches are considered.  This prevents a single row with a mismatched
+        dimension from making ``vector_distance_cos`` raise and poisoning the
+        entire query with an empty result.
+        """
         if not query_vec:
             return []
         try:
-            rows = self._conn.execute(
-                "SELECT id FROM memories WHERE embedding IS NOT NULL "
-                "ORDER BY vector_distance_cos(embedding, vector32(?)) ASC LIMIT ?",
-                (_vec_lit(query_vec), limit),
-            ).fetchall()
+            if embed_model is not None:
+                rows = self._conn.execute(
+                    "SELECT id FROM memories WHERE embedding IS NOT NULL AND embed_model = ? "
+                    "ORDER BY vector_distance_cos(embedding, vector32(?)) ASC LIMIT ?",
+                    (embed_model, _vec_lit(query_vec), limit),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT id FROM memories WHERE embedding IS NOT NULL "
+                    "ORDER BY vector_distance_cos(embedding, vector32(?)) ASC LIMIT ?",
+                    (_vec_lit(query_vec), limit),
+                ).fetchall()
             return [r["id"] for r in rows]
         except Exception as exc:
             logger.debug("turso_memory vector_search failed: %s", exc)

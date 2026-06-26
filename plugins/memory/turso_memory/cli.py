@@ -2,14 +2,20 @@
 from __future__ import annotations
 
 
-def register_cli(subparsers) -> None:
-    p = subparsers.add_parser("turso-memory", help="Inspect the turso_memory store")
-    sub = p.add_subparsers(dest="tm_cmd", required=True)
+def register_cli(subparser) -> None:
+    """Build the ``hermes turso-memory`` argparse subcommand tree.
+
+    Called by the plugin CLI registration system during argparse setup.
+    *subparser* is the ALREADY-CREATED parser for ``hermes turso-memory`` —
+    do NOT call ``subparser.add_parser(...)`` here.  Mirror honcho's exact
+    pattern: call ``subparser.add_subparsers(...)`` directly.
+    """
+    sub = subparser.add_subparsers(dest="tm_cmd", required=True)
     sub.add_parser("stats", help="row counts + embedded coverage")
     s = sub.add_parser("search", help="hybrid search")
     s.add_argument("query")
     sub.add_parser("reindex", help="re-embed rows whose model != active encoder")
-    p.set_defaults(func=_run)
+    subparser.set_defaults(func=_run)
 
 
 def _run(args) -> int:

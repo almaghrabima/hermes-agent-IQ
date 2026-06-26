@@ -126,6 +126,64 @@ def test_on_session_switch_no_reset_skips_reconcile(tmp_path, monkeypatch):
     p.shutdown()
 
 
+# ---------- FIX I1b — reconcile must NOT call encoder at init ----------
+
+def test_reconcile_does_not_call_encoder(tmp_path, monkeypatch):
+    """If encoder.encode raises, initialize() must NOT raise and the entry
+    must still be FTS-recallable (reconcile inserts with embedding=None)."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    mem_dir = tmp_path / "memories"
+    mem_dir.mkdir(parents=True)
+    (mem_dir / "MEMORY.md").write_text("reconcile should not embed this", encoding="utf-8")
+
+    class ExplodingEncoder:
+        model_id = "exploding/3"
+        dim = 3
+        def encode(self, texts):
+            raise RuntimeError("encoder must not be called during reconcile")
+
+    p = TursoMemoryProvider(config={"embedding": {"mode": "local"}})
+    p._encoder = ExplodingEncoder()
+    p.initialize(session_id="s1")   # must NOT raise
+
+    # Entry must be FTS-recallable even without an embedding
+    ids = p._store.fts_search("reconcile")
+    assert ids, "entry was not inserted by reconcile"
+    p.shutdown()
+
+
+def test_reconcile_skips_existing_entries(tmp_path, monkeypatch):
+    """If an entry already exists for a source_key, reconcile must skip it
+    (no upsert, no embed call for that entry)."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    mem_dir = tmp_path / "memories"
+    mem_dir.mkdir(parents=True)
+    (mem_dir / "MEMORY.md").write_text("stable fact", encoding="utf-8")
+
+    class CountingEncoder:
+        model_id = "counting/3"
+        dim = 3
+        calls = 0
+        def encode(self, texts):
+            self.calls += len(texts)
+            return [[1.0, 0.0, 0.0]] * len(texts)
+
+    enc = CountingEncoder()
+    p = TursoMemoryProvider(config={"embedding": {"mode": "local"}})
+    p._encoder = enc
+    p.initialize(session_id="s1")
+    calls_after_first_init = enc.calls   # may be 0 if reconcile skips embed
+
+    # Second initialize — entry already exists; reconcile must not re-embed it
+    p.initialize(session_id="s2")
+    # Encoder must NOT have been called again for the pre-existing entry
+    assert enc.calls == calls_after_first_init, (
+        f"encoder was called again on second reconcile: "
+        f"{enc.calls} total vs {calls_after_first_init} after first init"
+    )
+    p.shutdown()
+
+
 def test_reconcile_drops_removed_builtin_entries(tmp_path, monkeypatch):
     """Entries removed from MEMORY.md must be purged from the store on reconcile."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))

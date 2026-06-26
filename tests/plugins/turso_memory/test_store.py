@@ -1,4 +1,4 @@
-from plugins.memory.turso_memory.store import TursoMemoryStore, new_ulid
+from plugins.memory.turso_memory.store import TursoMemoryStore, new_ulid, builtin_source_key
 
 
 def _store(tmp_path) -> TursoMemoryStore:
@@ -84,4 +84,55 @@ def test_feedback_adjusts_trust(tmp_path):
     assert s.get(mid)["trust_score"] > 0.5
     s.feedback(mid, helpful=False)
     assert s.get(mid)["trust_score"] < 0.55
+    s.close()
+
+
+# ---------- FIX M1 — builtin_source_key strips content before hashing ----------
+
+def test_builtin_source_key_strips_whitespace():
+    """Key must be identical for content with leading/trailing whitespace stripped."""
+    assert builtin_source_key("memory", "  hello  ") == builtin_source_key("memory", "hello")
+    assert builtin_source_key("user", "\nfact\n") == builtin_source_key("user", "fact")
+
+
+# ---------- FIX I1a — upsert with embedding=None must not wipe good embedding ----------
+
+def test_upsert_null_embedding_preserves_existing_vector(tmp_path):
+    """Re-adding by source_key with embedding=None must NOT overwrite a stored embedding."""
+    s = _store(tmp_path)
+    k = "builtin:memory:preserve"
+    # Insert with a real embedding
+    mid = s.add("original content", source="builtin", source_key=k,
+                 embedding=[1.0, 0.0, 0.0], embed_model="fake/3")
+    # Upsert same source_key but with embedding=None (e.g. reconcile with dead encoder)
+    mid2 = s.add("updated content", source="builtin", source_key=k, embedding=None)
+    assert mid == mid2           # same row
+    # Embedding must still be there — vector search must still find the row
+    hits = s.vector_search([1.0, 0.0, 0.0], limit=5)
+    assert mid in hits, "embedding was wiped by NULL upsert"
+    # But content must have been updated
+    assert s.get(mid)["content"] == "updated content"
+    s.close()
+
+
+# ---------- FIX I3 — vector_search embed_model filter ----------
+
+def test_vector_search_model_filter_excludes_other_models(tmp_path):
+    """vector_search(embed_model=X) must return [] for rows stored under model Y."""
+    s = _store(tmp_path)
+    s.add("row under m3", embedding=[1.0, 0.0, 0.0], embed_model="m3")
+    # query filtered to a DIFFERENT model must return nothing, not raise
+    hits = s.vector_search([1.0, 0.0, 0.0], limit=5, embed_model="other_model")
+    assert hits == []
+    s.close()
+
+
+def test_vector_search_model_filter_returns_matching_model_rows(tmp_path):
+    """vector_search(embed_model=X) must return rows stored under model X."""
+    s = _store(tmp_path)
+    mid = s.add("row under m3", embedding=[1.0, 0.0, 0.0], embed_model="m3")
+    s.add("row under other", embedding=[1.0, 0.0, 0.0], embed_model="other_model")
+    hits = s.vector_search([1.0, 0.0, 0.0], limit=5, embed_model="m3")
+    assert mid in hits
+    assert len(hits) == 1   # only the m3 row
     s.close()
