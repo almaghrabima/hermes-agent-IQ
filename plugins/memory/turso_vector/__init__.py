@@ -15,6 +15,40 @@ from agent.memory_provider import MemoryProvider
 from . import embedder as _embedder_mod
 from .store import VectorStore
 
+_REPORT_SCHEMA = {
+    "name": "memory_report",
+    "description": "Record a durable lesson for future sessions — a correction (a mistake and its fix) or an insight (something learned). Stored in long-term memory and recalled when relevant.",
+    "parameters": {"type": "object", "properties": {
+        "kind": {"type": "string", "enum": ["correction", "insight"]},
+        "lesson": {"type": "string", "description": "The lesson, stated so it helps a future session."},
+        "what_failed": {"type": "string", "description": "Corrections only: what went wrong."},
+        "what_worked": {"type": "string", "description": "Corrections only: what fixed it."},
+    }, "required": ["kind", "lesson"]},
+}
+_REMEMBER_SCHEMA = {
+    "name": "memory_remember",
+    "description": "Store an explicit user-provided fact or preference in long-term memory.",
+    "parameters": {"type": "object", "properties": {
+        "text": {"type": "string", "description": "The fact to remember."},
+    }, "required": ["text"]},
+}
+_RATE_SCHEMA = {
+    "name": "memory_rate",
+    "description": "Rate how useful the recalled memories were this task (0=irrelevant, 3=very useful). Improves future recall. Only memories recalled this session can be rated.",
+    "parameters": {"type": "object", "properties": {
+        "ratings": {"type": "array", "items": {"type": "object", "properties": {
+            "id": {"type": "integer"}, "score": {"type": "integer", "minimum": 0, "maximum": 3}},
+            "required": ["id", "score"]}},
+    }, "required": ["ratings"]},
+}
+_CONTRADICT_SCHEMA = {
+    "name": "memory_contradict",
+    "description": "Delete a recalled memory that is wrong or contradicted by new evidence.",
+    "parameters": {"type": "object", "properties": {
+        "id": {"type": "integer", "description": "The memory id to delete."},
+    }, "required": ["id"]},
+}
+
 logger = logging.getLogger(__name__)
 
 _DEFAULTS = {
@@ -139,8 +173,63 @@ class TursoVectorMemoryProvider(MemoryProvider):
         return "\n".join(lines)
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        # Populated in Task 7.
-        return []
+        if not self._enabled:
+            return []
+        return [_REPORT_SCHEMA, _REMEMBER_SCHEMA, _RATE_SCHEMA, _CONTRADICT_SCHEMA]
+
+    def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
+        import json
+        from tools.registry import tool_error
+        if not self._enabled:
+            return tool_error("turso_vector memory is not active")
+        try:
+            return json.dumps(self._dispatch(tool_name, args))
+        except Exception as exc:
+            return tool_error(str(exc))
+
+    def _store_memory(self, *, kind: str, text: str,
+                      what_failed=None, what_worked=None) -> int:
+        def _do():
+            vec = self._embedder.embed(text)
+            return self._store.insert(
+                kind=kind, project=self._project, cwd=self._cwd, text=text,
+                what_failed=what_failed, what_worked=what_worked, embedding=vec,
+                created_at=_now_iso(), source_session=self._session_id)
+        return self._submit(_do, timeout=8.0)
+
+    def _dispatch(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        if tool_name == "memory_report":
+            lesson = args.get("lesson", "")
+            if not lesson:
+                return {"error": "lesson is required"}
+            mid = self._store_memory(
+                kind=args.get("kind", "insight"), text=lesson,
+                what_failed=args.get("what_failed"), what_worked=args.get("what_worked"))
+            return {"stored_id": mid}
+
+        if tool_name == "memory_remember":
+            text = args.get("text", "")
+            if not text:
+                return {"error": "text is required"}
+            return {"stored_id": self._store_memory(kind="user", text=text)}
+
+        if tool_name == "memory_rate":
+            alpha = float(self._settings["ema_alpha"])
+            rated = []
+            for r in args.get("ratings", []):
+                mid = int(r.get("id", -1))
+                if mid in self._retrieved:
+                    self._store.apply_rating(mid, int(r.get("score", 0)), alpha)
+                    rated.append(mid)
+            return {"rated": rated}
+
+        if tool_name == "memory_contradict":
+            mid = int(args.get("id", -1))
+            deleted = self._store.delete(mid)
+            self._retrieved.pop(mid, None)
+            return {"deleted": deleted}
+
+        return {"error": f"Unknown tool: {tool_name}"}
 
 
 def register(ctx) -> None:
