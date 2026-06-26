@@ -133,8 +133,12 @@ def dispatch_durable_delegation(
 
 
 def list_completed_durable_delegations() -> list[dict]:
-    """Query Temporal for completed BackgroundDelegationWorkflows (for outbox reconcile).
-    Returns [{run_id, session_key, status, block}]. Best-effort; raises if temporal down."""
+    """Query Temporal for completed BackgroundDelegationWorkflows missing from the
+    outbox (for reconcile). Returns [{run_id, session_key, status, block}] for the
+    NOT-yet-recorded ones only — workflow id == run_id, so rows already in the
+    outbox are skipped before fetching their result, bounding the per-startup scan
+    to new work rather than the whole Temporal retention window. Best-effort;
+    raises if temporal is down."""
 
     async def _go():
         s = resolve_temporal_config(load_config())
@@ -142,6 +146,8 @@ def list_completed_durable_delegations() -> list[dict]:
         out = []
         query = 'WorkflowType="BackgroundDelegationWorkflow" AND ExecutionStatus="Completed"'
         async for wf in client.list_workflows(query=query):
+            if _outbox.has_run(wf.id):
+                continue  # already recorded — skip the result() round-trip
             handle = client.get_workflow_handle(wf.id)
             res = await handle.result()
             out.append(
