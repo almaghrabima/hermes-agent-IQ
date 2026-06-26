@@ -133,6 +133,16 @@ try:
             return {"run_id": params["run_id"], "session_key": self._session_key,
                     "status": status, "block": block}
 
+    @_wf.defn(name="CronFireWorkflow")
+    class CronFireWorkflow:
+        @_wf.run
+        async def run(self, job_id: str) -> bool:
+            return await _wf.execute_activity(
+                "fire_cron_job", job_id,
+                start_to_close_timeout=timedelta(minutes=30),
+                retry_policy=_RetryPolicy(maximum_attempts=1),  # at-most-once; claim CAS guards dupes
+            )
+
     def _make_workflow() -> type:
         return DurableRunWorkflow
 
@@ -141,6 +151,9 @@ try:
 
     def _make_human_input_workflow() -> type:
         return HumanInputWorkflow
+
+    def _make_cron_fire_workflow() -> type:
+        return CronFireWorkflow
 
 except ImportError:
 
@@ -157,6 +170,12 @@ except ImportError:
         )
 
     def _make_human_input_workflow() -> type:  # type: ignore[misc]
+        raise ImportError(
+            "temporalio is required for the durable orchestration worker; "
+            "install the optional extra: uv pip install -e '.[temporal]'"
+        )
+
+    def _make_cron_fire_workflow() -> type:  # type: ignore[misc]
         raise ImportError(
             "temporalio is required for the durable orchestration worker; "
             "install the optional extra: uv pip install -e '.[temporal]'"

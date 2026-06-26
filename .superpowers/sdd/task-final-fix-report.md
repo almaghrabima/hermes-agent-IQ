@@ -223,3 +223,65 @@ Integration test (test_phase3_integration.py -m integration): 2/2 passed, 0 fail
 ```
 
 **Commit:** `d9f6f4a26` — `fix(temporal): trusted local respond bypass + init workflow session_key (Phase 3 final review)`
+
+---
+
+## Final-review fix wave — Temporal Phase 4a (2026-06-26)
+
+### BUG: Silent wrong-time cron firing on non-UTC deployments
+
+**Root cause:** `plugins/cron_providers/temporal/schedules.py` `job_to_spec` used
+`job.get("timezone") or "UTC"` to set the `time_zone` field. Cron jobs have NO
+per-job `timezone` key — Hermes timezone is a GLOBAL config setting. So
+`job.get("timezone")` always returned `None` → all schedules defaulted to UTC,
+while the built-in ticker used the configured tz. Cron jobs then fired at the
+wrong wall-clock time on non-UTC deployments.
+
+**Config key confirmed:** `timezone` in `~/.hermes/config.yaml`, accessed via
+`hermes_time._resolve_timezone_name()` which checks:
+1. `HERMES_TIMEZONE` env var (highest priority)
+2. `timezone` key in `config.yaml`
+3. Empty string fallback (→ "UTC" after `or "UTC"`)
+
+### FIX 1 — `plugins/cron_providers/temporal/schedules.py`
+
+Replaced `job.get("timezone") or "UTC"` with:
+```python
+import hermes_time as _hermes_time
+_configured_tz: str = _hermes_time._resolve_timezone_name() or "UTC"
+```
+So a `0 9 * * *` job maps to a schedule whose `time_zone` is the configured tz,
+matching the built-in ticker's wall-clock interpretation.
+
+### FIX 2 — `plugins/cron_providers/temporal/client_ops.py`
+
+In `build_schedule` `once` branch, converted `run_at` to UTC before extracting
+calendar fields:
+```python
+from datetime import timezone as _tz
+dt = datetime.fromisoformat(spec["run_at"])
+if dt.tzinfo is not None:
+    dt = dt.astimezone(_tz.utc)
+```
+And set `time_zone_name="UTC"` explicitly (no longer uses `spec.get("time_zone")`
+for once-shots). A `run_at="2026-07-01T09:00:00-04:00"` now fires at 13:00 UTC.
+
+### New tests
+
+**`tests/cron_providers/test_temporal_schedules.py`** — added:
+- `test_cron_uses_configured_timezone`: monkeypatches `hermes_time._resolve_timezone_name` → `"America/New_York"`, asserts `spec["time_zone"] == "America/New_York"`.
+- `test_cron_defaults_utc_when_unset`: resolver returns `""` → `spec["time_zone"] == "UTC"`.
+- Updated `_job()` helper to drop unused `tz=` kwarg; updated `test_cron_job_maps_to_cron_spec` to use monkeypatch.
+
+**`tests/cron_providers/test_temporal_client_ops.py`** — added:
+- `test_once_honors_run_at_offset`: `run_at="2026-07-01T09:00:00-04:00"`, asserts `sched.spec.calendars[0].hour[0].start == 13` and `sched.spec.time_zone_name == "UTC"`.
+
+### Verify outputs
+
+```
+scripts/run_tests.sh tests/cron_providers/
+=== Summary: 3 files, 15 tests passed, 0 failed (100% complete) in 0.5s (24 workers) ===
+
+ruff check plugins/cron_providers/temporal/
+All checks passed!
+```
