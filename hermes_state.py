@@ -1025,6 +1025,15 @@ class SessionDB:
                     self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                 except Exception:
                     pass
+                # Flush local writes to the Turso cloud primary before closing so
+                # a multi-device user sees this session on their other devices.
+                # No-op for stdlib sqlite3 (no .sync attribute).
+                sync_fn = getattr(self._conn, "sync", None)
+                if callable(sync_fn):
+                    try:
+                        sync_fn()
+                    except Exception:
+                        logger.debug("Turso shutdown sync failed", exc_info=True)
                 self._conn.close()
                 self._conn = None
 
