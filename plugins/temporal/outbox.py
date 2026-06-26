@@ -67,3 +67,18 @@ def claim_undelivered(session_keys: list[str], limit: int = 50) -> list[dict[str
             ]
         finally:
             conn.close()
+
+def get_row(run_id: str) -> dict | None:
+    with _lock:
+        conn = _conn()
+        try:
+            r = conn.execute(
+                "SELECT run_id, session_key, status, block, delivered_at FROM outbox WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+    if r is None:
+        return None
+    return {"run_id": r[0], "session_key": r[1], "status": r[2],
+            "block": json.loads(r[3]), "delivered_at": r[4]}
