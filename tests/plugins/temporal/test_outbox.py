@@ -32,3 +32,15 @@ def test_has_run(tmp_path, monkeypatch):
     assert outbox.has_run("x") is False
     outbox.record_completion("x", "s", "completed", {})
     assert outbox.has_run("x") is True
+
+def test_connection_sets_busy_timeout(tmp_path, monkeypatch):
+    """The worker process writes while the Hermes process drains (BEGIN IMMEDIATE)
+    against the same file; without a busy_timeout, concurrent access raises
+    'database is locked' immediately. The connection must wait instead."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    conn = outbox._conn()
+    try:
+        (val,) = conn.execute("PRAGMA busy_timeout").fetchone()
+        assert val >= 5000, f"expected busy_timeout >= 5000ms, got {val}"
+    finally:
+        conn.close()
