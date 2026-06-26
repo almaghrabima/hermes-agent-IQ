@@ -178,11 +178,52 @@ try:
                 )
                 raise
 
+    def _rlm_retry_policy(max_attempts: int):
+        return _RetryPolicy(maximum_attempts=int(max_attempts))
+
+    @_wf.defn(name="RlmRunWorkflow")
+    class RlmRunWorkflow:
+        @_wf.run
+        async def run(self, params: dict) -> dict:
+            # params: {rlm_args, session_key, run_id, max_attempts, timeout_seconds}
+            timeout_s = int(params.get("timeout_seconds", 600))
+            policy = _rlm_retry_policy(int(params.get("max_attempts", 2)))
+            try:
+                result = await _wf.execute_activity(
+                    "run_rlm_durable",
+                    {"rlm_args": params.get("rlm_args") or {}, "run_id": params["run_id"]},
+                    start_to_close_timeout=timedelta(seconds=timeout_s + 120),
+                    retry_policy=policy,
+                )
+                ok = bool(result.get("ok"))
+                summary = result.get("summary")
+                error = None if ok else result.get("error")
+            except Exception as exc:  # activity exhausted its retries
+                ok, summary, error = False, None, f"durable rlm failed: {exc}"
+            block = {
+                "goal": (params.get("rlm_args") or {}).get("query", ""),
+                "summary": summary,
+                "error": error,
+                "status": "completed" if ok else "failed",
+            }
+            await _wf.execute_activity(
+                "record_outbox",
+                {"run_id": params["run_id"], "session_key": params.get("session_key", "default"),
+                 "status": block["status"], "block": block},
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=_RetryPolicy(maximum_attempts=10),
+            )
+            return {"run_id": params["run_id"], "session_key": params.get("session_key", "default"),
+                    "status": block["status"], "block": block}
+
     def _make_workflow() -> type:
         return DurableRunWorkflow
 
     def _make_background_workflow() -> type:
         return BackgroundDelegationWorkflow
+
+    def _make_rlm_run_workflow() -> type:
+        return RlmRunWorkflow
 
     def _make_human_input_workflow() -> type:
         return HumanInputWorkflow
@@ -220,6 +261,12 @@ except ImportError:
         )
 
     def _make_kanban_task_workflow() -> type:  # type: ignore[misc]
+        raise ImportError(
+            "temporalio is required for the durable orchestration worker; "
+            "install the optional extra: uv pip install -e '.[temporal]'"
+        )
+
+    def _make_rlm_run_workflow() -> type:  # type: ignore[misc]
         raise ImportError(
             "temporalio is required for the durable orchestration worker; "
             "install the optional extra: uv pip install -e '.[temporal]'"
