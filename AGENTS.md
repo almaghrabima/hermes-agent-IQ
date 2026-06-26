@@ -1219,6 +1219,22 @@ worker process started with `hermes temporal worker`.
 - The live worker→real-subagent path is validated piecewise (unit tests + time-skipping
   e2e); full live validation requires a running Temporal server per the runbook.
 
+**Phase 3 — human-in-the-loop (`durable_ask`):**
+- `durable_ask(prompt, choices?, timeout_seconds?)` pauses the workflow durably,
+  waiting for a human reply. Requires `temporal.enabled: true`; errors clearly if
+  not — there is **no silent fallback**.
+- The human responds via `hermes temporal respond <run_id> "<answer>"` (CLI) or
+  `/respond <run_id> <answer>` (gateway). Authorization is session-restricted:
+  only the session that originated the request (stored in the `<run_id>:waiting`
+  outbox row) may respond.
+- The answer re-enters the conversation via the existing Phase 2 outbox rail
+  (`record_outbox` activity → `temporal_outbox.db` → `drain_outbox_for_sessions`).
+  No new delivery rail is required.
+- Default timeout is 86 400 s (1 day); on expiry the workflow completes with
+  `status="timed_out"` and `block.summary=None`. The timeout is configurable per
+  call via `timeout_seconds`.
+- Status while waiting is `waiting_for_input`, queryable via `durable_status`.
+
 Design and plan: `docs/temporal/`.
 
 ---
