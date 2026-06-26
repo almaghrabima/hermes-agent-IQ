@@ -66,7 +66,25 @@ def _make_activities():
             payload["run_id"], payload["session_key"], payload["status"], payload["block"],
         )
 
-    return [run_step_activity, record_outbox_activity]
+    @activity.defn(name="fire_cron_job")
+    async def fire_cron_job_activity(job_id: str) -> bool:
+        import asyncio as _a
+        def _fire() -> bool:
+            from tools.registry import discover_builtin_tools
+            discover_builtin_tools()  # cron jobs build agents/tools
+            # Inline the shared fire_due default body (the ABC can't be instantiated):
+            # claim CAS (at-most-once across machines) then run via the shared path.
+            from cron.jobs import claim_job_for_fire, get_job
+            from cron.scheduler import run_one_job
+            if not claim_job_for_fire(job_id):
+                return False  # another machine/retry already claimed this fire
+            job = get_job(job_id)
+            if job is None:
+                return False  # job removed between arm and fire
+            return run_one_job(job)
+        return await _a.to_thread(_fire)
+
+    return [run_step_activity, record_outbox_activity, fire_cron_job_activity]
 
 
 def _make_activity():
