@@ -87,3 +87,66 @@ def handle_durable_status(args: dict, **kw) -> str:
         return json.dumps(asyncio.run(_status(run_id)))
     except Exception as e:  # noqa: BLE001
         return _err(f"durable_status failed: {e}")
+
+
+def dispatch_durable_delegation(
+    *,
+    goal,
+    context,
+    toolsets,
+    role,
+    model,
+    session_key,
+    retry=None,
+) -> dict:
+    """Start a BackgroundDelegationWorkflow and return immediately with a run_id."""
+    s = resolve_temporal_config(load_config())
+    run_id = f"durable-deleg-{uuid.uuid4().hex[:12]}"
+
+    async def _go():
+        client = await connect(s)
+        handle = await client.start_workflow(
+            "BackgroundDelegationWorkflow",
+            {
+                "goal": goal,
+                "context": context,
+                "toolsets": toolsets,
+                "role": role,
+                "model": model,
+                "session_key": session_key or "default",
+                "run_id": run_id,
+                "retry": retry,
+                "step_timeout_seconds": s.step_timeout_seconds,
+            },
+            id=run_id,
+            task_queue=s.task_queue,
+        )
+        return handle.id
+
+    rid = asyncio.run(_go())
+    return {"status": "dispatched", "run_id": rid}
+
+
+def list_completed_durable_delegations() -> list[dict]:
+    """Query Temporal for completed BackgroundDelegationWorkflows (for outbox reconcile).
+    Returns [{run_id, session_key, status, block}]. Best-effort; raises if temporal down."""
+
+    async def _go():
+        s = resolve_temporal_config(load_config())
+        client = await connect(s)
+        out = []
+        query = 'WorkflowType="BackgroundDelegationWorkflow" AND ExecutionStatus="Completed"'
+        async for wf in client.list_workflows(query=query):
+            handle = client.get_workflow_handle(wf.id)
+            res = await handle.result()
+            out.append(
+                {
+                    "run_id": res.get("run_id", wf.id),
+                    "session_key": "default",
+                    "status": res.get("status", "completed"),
+                    "block": {"summary": res.get("status"), "goal": ""},
+                }
+            )
+        return out
+
+    return asyncio.run(_go())
