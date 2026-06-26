@@ -45,3 +45,53 @@ def test_kanban_workflow_retry_tracks_failure_limit():
     from plugins.temporal import workflows
     policy = workflows._kanban_retry_policy(failure_limit=3)
     assert policy.maximum_attempts == 4
+
+
+@pytest.mark.asyncio
+async def test_kanban_workflow_runs_activity_and_completes(monkeypatch):
+    """End-to-end: KanbanTaskWorkflow → run_kanban_worker activity (subprocess stubbed)."""
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    from plugins.temporal import activities as A
+    from plugins.temporal.workflows import _make_kanban_task_workflow
+    from hermes_cli import kanban_db
+
+    # Stub the subprocess: exits 0 immediately; avoids any real Popen.
+    class FakeProc:
+        pid = 1
+
+        def poll(self):
+            return 0  # already exited
+
+    monkeypatch.setattr(kanban_db, "_popen_from_spawn_args", lambda args: FakeProc())
+    monkeypatch.setattr(kanban_db, "connect", lambda *a, **k: object())
+    seen = {}
+    monkeypatch.setattr(
+        kanban_db,
+        "reap_temporal_worker",
+        lambda conn, tid, code, **kw: seen.setdefault("code", code) or "terminal",
+    )
+
+    WF = _make_kanban_task_workflow()
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="tq",
+            workflows=[WF],
+            activities=A._make_activities(),
+        ):
+            result = await env.client.execute_workflow(
+                "KanbanTaskWorkflow",
+                {
+                    "task_id": "t-1",
+                    "spawn_args": {"argv": [], "max_runtime_seconds": 10},
+                    "board": None,
+                    "failure_limit": 2,
+                    "poll_seconds": 0,
+                },
+                id="hermes-kanban-t-1-1",
+                task_queue="tq",
+            )
+    assert result["exit_code"] == 0
+    assert result["reap"] == "terminal"
+    assert seen["code"] == 0
