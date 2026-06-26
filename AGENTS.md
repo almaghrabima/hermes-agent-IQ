@@ -1237,6 +1237,27 @@ worker process started with `hermes temporal worker`.
 
 Design and plan: `docs/temporal/`.
 
+**Phase 4a — Temporal-backed cron (`cron.provider: temporal`):**
+- Setting `cron.provider: temporal` in `config.yaml` replaces the built-in in-process
+  tick loop with Temporal Schedules for durable, server-managed cron.  The built-in
+  ticker remains the default and is used as automatic fallback whenever
+  `TemporalCronScheduler.is_available()` returns false (config-only check: requires
+  `temporal.enabled: true`; no network call).
+- Each enabled Hermes cron job is reconciled into a Temporal Schedule named
+  `hermes-cron-<job-id>` via `upsert_schedule` / `delete_schedule` in
+  `plugins/cron_providers/temporal/client_ops.py`.  Schedules fire independently of
+  the Hermes process — they survive CLI and gateway restarts.
+- On each scheduled trigger the Temporal server starts a `CronFireWorkflow`, which
+  calls the `fire_cron_job` activity.  That activity runs inside `hermes temporal worker`
+  and delegates to the shared `fire_due` path (same code path used by the built-in
+  ticker), so all existing per-job logic (skills, model overrides, script injection,
+  catchup, etc.) applies unchanged.
+- **Worker-side gateway-delivery limitation:** when `fire_cron_job` runs inside the
+  worker process it has no access to the live gateway session — cron output lands in
+  its own cron session exactly as with the built-in ticker, but cross-session delivery
+  to a running gateway (e.g. Slack DMs) requires the gateway process to be alive and
+  draining the outbox.  Full gateway delivery from a detached worker is Phase 4b.
+
 ---
 
 ## Important Policies
