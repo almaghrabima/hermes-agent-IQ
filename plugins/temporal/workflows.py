@@ -143,6 +143,25 @@ try:
                 retry_policy=_RetryPolicy(maximum_attempts=1),  # at-most-once; claim CAS guards dupes
             )
 
+    def _kanban_retry_policy(failure_limit: int):
+        return _RetryPolicy(maximum_attempts=1 + int(failure_limit))
+
+    @_wf.defn(name="KanbanTaskWorkflow")
+    class KanbanTaskWorkflow:
+        @_wf.run
+        async def run(self, payload: dict) -> dict:
+            spawn_args = payload["spawn_args"]
+            max_runtime = spawn_args.get("max_runtime_seconds") or 3600
+            poll = int(payload.get("poll_seconds", 5))
+            return await _wf.execute_activity(
+                "run_kanban_worker",
+                {"task_id": payload["task_id"], "spawn_args": spawn_args,
+                 "board": payload.get("board"), "poll_seconds": poll},
+                start_to_close_timeout=timedelta(seconds=int(max_runtime) + 60),
+                heartbeat_timeout=timedelta(seconds=poll * 6 + 30),
+                retry_policy=_kanban_retry_policy(payload.get("failure_limit", 2)),
+            )
+
     def _make_workflow() -> type:
         return DurableRunWorkflow
 
@@ -154,6 +173,9 @@ try:
 
     def _make_cron_fire_workflow() -> type:
         return CronFireWorkflow
+
+    def _make_kanban_task_workflow() -> type:
+        return KanbanTaskWorkflow
 
 except ImportError:
 
@@ -176,6 +198,12 @@ except ImportError:
         )
 
     def _make_cron_fire_workflow() -> type:  # type: ignore[misc]
+        raise ImportError(
+            "temporalio is required for the durable orchestration worker; "
+            "install the optional extra: uv pip install -e '.[temporal]'"
+        )
+
+    def _make_kanban_task_workflow() -> type:  # type: ignore[misc]
         raise ImportError(
             "temporalio is required for the durable orchestration worker; "
             "install the optional extra: uv pip install -e '.[temporal]'"
