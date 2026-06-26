@@ -109,5 +109,26 @@ def connect(
     return _connect_turso(db_path, label=label, sync=sync, **sqlite_kwargs)
 
 
-def _connect_turso(db_path, *, label, sync, **sqlite_kwargs):  # implemented in Task 3
-    raise NotImplementedError("Turso backend lands in Task 3")
+def _connect_turso(db_path, *, label, sync: SyncConfig, **sqlite_kwargs):
+    """Open a libSQL embedded replica wrapped in the sqlite3-compat adapter.
+
+    The local replica path is ``sync.local_path`` (NOT ``db_path`` — that is the
+    sqlite path). Background ``sync_interval`` handles device<->cloud sync.
+    sqlite-only kwargs that libsql doesn't accept (check_same_thread, timeout,
+    isolation_level) are dropped here; the adapter emulates the ones SessionDB
+    relies on.
+    """
+    from tools.lazy_deps import ensure
+    ensure("database.turso")
+    import libsql
+    from agent.turso_adapter import _TursoConnection
+
+    local = sync.local_path or (get_hermes_home() / "replicas" / label)
+    local.parent.mkdir(parents=True, exist_ok=True)
+    raw = libsql.connect(
+        str(local),
+        sync_url=sync.sync_url,
+        auth_token=sync.auth_token,
+        sync_interval=sync.sync_interval,
+    )
+    return _TursoConnection(raw)

@@ -199,6 +199,9 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     "tool.fast_rlm": ("fast-rlm==0.2.4",),
     # Durable orchestration plugin
     "tool.temporal": ("temporalio==1.29.0",),
+
+    # ─── Database backends ───────────────────────────────────────────────
+    "database.turso": ("libsql==0.1.11",),
 }
 
 
