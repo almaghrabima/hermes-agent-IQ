@@ -1031,6 +1031,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- exceeds DEFAULT_FAILURE_LIMIT consecutive non-successes.
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
     worker_pid           INTEGER,
+    run_kind             TEXT,
     -- Short excerpt of the most recent failure's error text.
     last_failure_error   TEXT,
     max_runtime_seconds  INTEGER,
@@ -1816,6 +1817,8 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
             )
     if "worker_pid" not in cols:
         _add_column_if_missing(conn, "tasks", "worker_pid", "worker_pid INTEGER")
+    if "run_kind" not in cols:
+        _add_column_if_missing(conn, "tasks", "run_kind", "run_kind TEXT")
     if "last_failure_error" not in cols:
         added = _add_column_if_missing(
             conn, "tasks", "last_failure_error", "last_failure_error TEXT"
@@ -3420,13 +3423,15 @@ def release_stale_claims(
     reclaimed = 0
     host_prefix = f"{_claimer_id().split(':', 1)[0]}:"
     stale = conn.execute(
-        "SELECT id, claim_lock, worker_pid, claim_expires, last_heartbeat_at "
+        "SELECT id, claim_lock, worker_pid, claim_expires, last_heartbeat_at, run_kind "
         "FROM tasks "
         "WHERE status = 'running' AND claim_expires IS NOT NULL "
         "  AND claim_expires < ?",
         (now,),
     ).fetchall()
     for row in stale:
+        if (row["run_kind"] if "run_kind" in row.keys() else None) == "temporal":
+            continue  # Temporal supervises its own runs; never reclaim here.
         lock = row["claim_lock"] or ""
         host_local = lock.startswith(host_prefix)
         hb = row["last_heartbeat_at"]
@@ -5864,7 +5869,7 @@ def detect_stale_running(
     reclaimed: list[str] = []
 
     rows = conn.execute(
-        "SELECT t.id, t.worker_pid, t.last_heartbeat_at, t.claim_lock, "
+        "SELECT t.id, t.worker_pid, t.last_heartbeat_at, t.claim_lock, t.run_kind, "
         "       COALESCE(r.started_at, t.started_at) AS active_started_at "
         "FROM tasks t "
         "LEFT JOIN task_runs r ON r.id = t.current_run_id "
@@ -5872,6 +5877,8 @@ def detect_stale_running(
     ).fetchall()
 
     for row in rows:
+        if (row["run_kind"] if "run_kind" in row.keys() else None) == "temporal":
+            continue  # Temporal supervises its own runs; never reclaim here.
         # Skip if no started_at (shouldn't happen for running, but be safe).
         if row["active_started_at"] is None:
             continue
@@ -6355,6 +6362,26 @@ def _set_worker_pid(conn: sqlite3.Connection, task_id: str, pid: int) -> None:
                 (int(pid), run_id),
             )
         _append_event(conn, task_id, "spawned", {"pid": int(pid)}, run_id=run_id)
+        conn.execute("UPDATE tasks SET run_kind=NULL WHERE id = ?", (task_id,))
+
+
+def _mark_run_temporal(conn: sqlite3.Connection, task_id: str) -> None:
+    """Mark the current run Temporal-supervised. Leaves worker_pid NULL so
+    the PID-gated reclaimers (detect_crashed_workers, enforce_max_runtime)
+    skip it, and sets run_kind='temporal' so the TTL/heartbeat reclaimers
+    (release_stale_claims, detect_stale_running) skip it too. Temporal is
+    then the sole supervisor for this run."""
+    with write_txn(conn):
+        conn.execute("UPDATE tasks SET run_kind='temporal' WHERE id = ?", (task_id,))
+        run_id = _current_run_id(conn, task_id)
+        _append_event(conn, task_id, "spawned", {"run_kind": "temporal"}, run_id=run_id)
+
+
+def _clear_run_kind(conn: sqlite3.Connection, task_id: str) -> None:
+    """Reset run_kind to NULL (builtin). Called by the builtin pid setter so
+    a builtin re-spawn after a temporal attempt is recorded accurately."""
+    with write_txn(conn):
+        conn.execute("UPDATE tasks SET run_kind=NULL WHERE id = ?", (task_id,))
 
 
 def _clear_failure_counter(conn: sqlite3.Connection, task_id: str) -> None:
