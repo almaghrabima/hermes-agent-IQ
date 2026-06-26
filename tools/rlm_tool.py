@@ -38,11 +38,31 @@ _RLM_CONFIG_DEFAULTS = {
     "kernel_runtime": None,
     "kernel_image": None,
     "kernel_network": None,
+    "durable_max_attempts": 2,
 }
 
 
 class RlmError(Exception):
     """User-facing error from the rlm tool (returned as {'status':'error'})."""
+
+
+def _temporal_enabled() -> bool:
+    try:
+        from plugins.temporal.tconfig import resolve_temporal_config
+        from hermes_cli.config import load_config
+        return bool(resolve_temporal_config(load_config()).enabled)
+    except Exception:  # noqa: BLE001 — temporal not installed/configured
+        return False
+
+
+def _current_session_key() -> str:
+    from tools.approval import get_current_session_key
+    return get_current_session_key(default="default")
+
+
+def _dispatch_durable_rlm(**kw) -> dict:
+    from plugins.temporal.tools import dispatch_durable_rlm
+    return dispatch_durable_rlm(**kw)
 
 
 @dataclass
@@ -218,6 +238,7 @@ RLM_SCHEMA = {
             "primary_agent": {"type": "string", "description": "Override the RLM model (default: Hermes' active model)."},
             "sub_agent": {"type": "string", "description": "Override the sub-agent model (default: primary_agent)."},
             "max_global_calls": {"type": "integer", "description": "Override the RLM global call budget."},
+            "durable": {"type": "boolean", "description": "Run as a crash-durable background Temporal workflow; returns a run_id and the result re-enters the session when done (requires temporal.enabled)."},
         },
         "required": ["query"],
     },
@@ -225,9 +246,32 @@ RLM_SCHEMA = {
 
 
 def rlm_tool(query, context=None, input_path=None, primary_agent=None,
-             sub_agent=None, max_global_calls=None, task_id=None) -> str:
+             sub_agent=None, max_global_calls=None, task_id=None, durable=False) -> str:
     try:
         _validate_context_args(context, input_path)
+        if durable:
+            if not _temporal_enabled():
+                raise RlmError(
+                    "rlm durable=true requires temporal.enabled; see docs/temporal/. "
+                    "Not falling back to a non-durable run.")
+            rlm_cfg = _load_rlm_config()
+            # rlm_args carries ONLY the user-supplied call args — NOT resolved
+            # config or credentials. The worker resolves rlm config + creds from
+            # its own config.yaml at activity time (run_rlm_durable calls the sync
+            # rlm_tool). This keeps secrets out of the Temporal payload/history;
+            # do not "enrich" rlm_args with resolved config here.
+            rlm_args = {
+                "query": query, "context": context, "input_path": input_path,
+                "primary_agent": primary_agent, "sub_agent": sub_agent,
+                "max_global_calls": max_global_calls,
+            }
+            out = _dispatch_durable_rlm(
+                rlm_args=rlm_args,
+                session_key=_current_session_key(),
+                max_attempts=int(rlm_cfg.get("durable_max_attempts", 2)),
+                timeout_seconds=int(rlm_cfg.get("timeout_seconds", 600)),
+            )
+            return json.dumps(out, ensure_ascii=False)
         rlm_cfg = _load_rlm_config()
         if primary_agent is not None:
             rlm_cfg["primary_agent"] = primary_agent
@@ -278,6 +322,7 @@ registry.register(
         sub_agent=args.get("sub_agent"),
         max_global_calls=args.get("max_global_calls"),
         task_id=kw.get("task_id"),
+        durable=bool(args.get("durable", False)),
     ),
     check_fn=check_rlm_available,
     emoji="🔁",

@@ -1258,6 +1258,39 @@ Design and plan: `docs/temporal/`.
   to a running gateway (e.g. Slack DMs) requires the gateway process to be alive and
   draining the outbox.  Full gateway delivery from a detached worker is Phase 4b.
 
+**Phase 4b — Durable kanban workers (`kanban.spawn_provider: temporal`):**
+- Setting `kanban.spawn_provider: temporal` in `config.yaml` (default `builtin`) runs
+  each claimed kanban card's `hermes chat` worker inside a durable `KanbanTaskWorkflow`
+  on the `hermes temporal worker`, instead of a local subprocess.  The worker survives
+  a host/gateway crash — Temporal re-runs the activity on return.
+- SQLite still owns claim/promote/dependency/circuit-breaker; Temporal is the sole
+  supervisor for its runs, so the TTL/heartbeat reclaimers skip `run_kind='temporal'`
+  rows (the activity reaps its own subprocess via `reap_temporal_worker`).
+- Falls back to the builtin subprocess spawn if `temporal.enabled` is false or Temporal
+  is unreachable — kanban is never left without a spawn.
+- **Limitation:** the activity Popens on the worker host, so the worker must reach the
+  card's `workspace_path` (same host or shared FS); cross-host workspaces are a
+  flagged follow-up.
+- **Limitation:** if heartbeats stall past `heartbeat_timeout` while the subprocess is
+  still alive, Temporal may retry the activity and launch a second subprocess for the
+  same card (at-least-once execution) — the SQLite claim CAS still gates the initial
+  claim, but a card's worker can run twice in this stall case.
+
+**Phase 5 — Durable background rlm (`rlm(durable=true)`):**
+- `rlm(durable=true)` (default off) runs the rlm invocation as a crash-durable
+  `RlmRunWorkflow` on the `hermes temporal worker` and returns a `run_id`
+  immediately; the result re-enters the originating session via the same durable
+  outbox/completion rail as durable delegation (pollable with `durable_status`,
+  backfilled by startup reconcile).
+- Requires `temporal.enabled: true` — no silent fallback; the tool raises an error
+  if Temporal is unavailable when `durable=true` is requested.
+- On a host/worker crash the whole rlm run is re-run from scratch up to
+  `rlm.durable_max_attempts` (default 2); kernel state is not checkpointed between
+  attempts, and rlm's own budgets bound each attempt.
+- **Limitation:** the worker runs rlm with the local backend on the worker host
+  (needs Deno + fast-rlm there); durable mode over remote backends and mid-run
+  resume are non-goals.
+
 ---
 
 ## Important Policies

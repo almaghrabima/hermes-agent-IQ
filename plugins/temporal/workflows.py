@@ -143,17 +143,96 @@ try:
                 retry_policy=_RetryPolicy(maximum_attempts=1),  # at-most-once; claim CAS guards dupes
             )
 
+    def _kanban_retry_policy(failure_limit: int):
+        # NOTE: the activity swallows non-zero subprocess EXITS (reaps via SQLite), so
+        # this retry policy governs only INFRA/timeout activity failures — per-card retry
+        # of normal worker failures is driven by the dispatcher re-claim + the SQLite
+        # circuit breaker.
+        return _RetryPolicy(maximum_attempts=1 + int(failure_limit))
+
+    @_wf.defn(name="KanbanTaskWorkflow")
+    class KanbanTaskWorkflow:
+        @_wf.run
+        async def run(self, payload: dict) -> dict:
+            spawn_args = payload["spawn_args"]
+            max_runtime = spawn_args.get("max_runtime_seconds") or 3600
+            poll = int(payload.get("poll_seconds", 5))
+            try:
+                return await _wf.execute_activity(
+                    "run_kanban_worker",
+                    {"task_id": payload["task_id"], "spawn_args": spawn_args,
+                     "board": payload.get("board"), "poll_seconds": poll},
+                    start_to_close_timeout=timedelta(seconds=int(max_runtime) + 60),
+                    heartbeat_timeout=timedelta(seconds=poll * 6 + 30),
+                    retry_policy=_kanban_retry_policy(payload.get("failure_limit", 2)),
+                )
+            except Exception:
+                # Terminal activity failure (Popen error / timeout / retries exhausted):
+                # the SQLite reapers skip run_kind='temporal', so finalize the card here
+                # instead of orphaning it 'running'.
+                await _wf.execute_activity(
+                    "reap_failed_kanban_worker",
+                    {"task_id": payload["task_id"], "board": payload.get("board")},
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=_RetryPolicy(maximum_attempts=5),
+                )
+                raise
+
+    def _rlm_retry_policy(max_attempts: int):
+        return _RetryPolicy(maximum_attempts=int(max_attempts))
+
+    @_wf.defn(name="RlmRunWorkflow")
+    class RlmRunWorkflow:
+        @_wf.run
+        async def run(self, params: dict) -> dict:
+            # params: {rlm_args, session_key, run_id, max_attempts, timeout_seconds}
+            timeout_s = int(params.get("timeout_seconds", 600))
+            policy = _rlm_retry_policy(int(params.get("max_attempts", 2)))
+            try:
+                result = await _wf.execute_activity(
+                    "run_rlm_durable",
+                    {"rlm_args": params.get("rlm_args") or {}, "run_id": params["run_id"]},
+                    start_to_close_timeout=timedelta(seconds=timeout_s + 120),
+                    retry_policy=policy,
+                )
+                ok = bool(result.get("ok"))
+                summary = result.get("summary")
+                error = None if ok else result.get("error")
+            except Exception as exc:  # activity exhausted its retries
+                ok, summary, error = False, None, f"durable rlm failed: {exc}"
+            block = {
+                "goal": (params.get("rlm_args") or {}).get("query", ""),
+                "summary": summary,
+                "error": error,
+                "status": "completed" if ok else "failed",
+            }
+            await _wf.execute_activity(
+                "record_outbox",
+                {"run_id": params["run_id"], "session_key": params.get("session_key", "default"),
+                 "status": block["status"], "block": block},
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=_RetryPolicy(maximum_attempts=10),
+            )
+            return {"run_id": params["run_id"], "session_key": params.get("session_key", "default"),
+                    "status": block["status"], "block": block}
+
     def _make_workflow() -> type:
         return DurableRunWorkflow
 
     def _make_background_workflow() -> type:
         return BackgroundDelegationWorkflow
 
+    def _make_rlm_run_workflow() -> type:
+        return RlmRunWorkflow
+
     def _make_human_input_workflow() -> type:
         return HumanInputWorkflow
 
     def _make_cron_fire_workflow() -> type:
         return CronFireWorkflow
+
+    def _make_kanban_task_workflow() -> type:
+        return KanbanTaskWorkflow
 
 except ImportError:
 
@@ -176,6 +255,18 @@ except ImportError:
         )
 
     def _make_cron_fire_workflow() -> type:  # type: ignore[misc]
+        raise ImportError(
+            "temporalio is required for the durable orchestration worker; "
+            "install the optional extra: uv pip install -e '.[temporal]'"
+        )
+
+    def _make_kanban_task_workflow() -> type:  # type: ignore[misc]
+        raise ImportError(
+            "temporalio is required for the durable orchestration worker; "
+            "install the optional extra: uv pip install -e '.[temporal]'"
+        )
+
+    def _make_rlm_run_workflow() -> type:  # type: ignore[misc]
         raise ImportError(
             "temporalio is required for the durable orchestration worker; "
             "install the optional extra: uv pip install -e '.[temporal]'"

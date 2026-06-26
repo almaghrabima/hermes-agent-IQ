@@ -9,13 +9,13 @@ async def run_worker(s) -> None:
     from tools.registry import discover_builtin_tools
     discover_builtin_tools()
     from temporalio.worker import Worker  # type: ignore
-    from plugins.temporal.workflows import _make_workflow, _make_background_workflow, _make_human_input_workflow, _make_cron_fire_workflow
+    from plugins.temporal.workflows import _make_workflow, _make_background_workflow, _make_human_input_workflow, _make_cron_fire_workflow, _make_kanban_task_workflow, _make_rlm_run_workflow
     from plugins.temporal.activities import _make_activities
     client = await connect(s)
     worker = Worker(
         client,
         task_queue=s.task_queue,
-        workflows=[_make_workflow(), _make_background_workflow(), _make_human_input_workflow(), _make_cron_fire_workflow()],
+        workflows=[_make_workflow(), _make_background_workflow(), _make_human_input_workflow(), _make_cron_fire_workflow(), _make_kanban_task_workflow(), _make_rlm_run_workflow()],
         activities=_make_activities(),
     )
     await worker.run()
