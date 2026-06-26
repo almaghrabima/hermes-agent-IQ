@@ -68,6 +68,15 @@ def test_on_memory_write_mirrors_builtin(tmp_path, monkeypatch):
     p.shutdown()
 
 
+def test_on_memory_write_remove_path(tmp_path, monkeypatch):
+    p = _provider(tmp_path, monkeypatch)
+    p.on_memory_write("add", "user", "temporary fact abc")
+    p.on_memory_write("remove", "user", "temporary fact abc")
+    out = json.loads(p.handle_tool_call("memory", {"action": "recall", "query": "temporary fact abc"}))
+    assert not any("temporary fact abc" in m["content"] for m in out["results"])
+    p.shutdown()
+
+
 def test_sync_turn_stores_nothing(tmp_path, monkeypatch):
     p = _provider(tmp_path, monkeypatch)
     p.sync_turn("hello", "hi there", session_id="s1")

@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
 
-from .store import TursoMemoryStore
+from .store import TursoMemoryStore, builtin_source_key
 from .encoder import get_encoder, EncoderUnavailable
 from .retrieval import fuse_and_rank
 
@@ -166,18 +166,16 @@ class TursoMemoryProvider(MemoryProvider):
         if not self._store:
             return
         kind = "file_user" if target == "user" else "file_memory"
-        key = f"builtin:{target}:{hash(content) & 0xFFFFFFFF:08x}"
+        key = builtin_source_key(target, content)
         try:
             if action in ("add", "replace"):
                 vec, model = self._embed(content)
                 self._store.add(content, kind=kind, source="builtin",
                                 source_key=key, embedding=vec, embed_model=model)
             elif action == "remove":
-                row = self._store._conn.execute(
-                    "SELECT id FROM memories WHERE source_key = ?", (key,)
-                ).fetchone()
-                if row:
-                    self._store.remove(row["id"])
+                mid = self._store.find_by_source_key(key)
+                if mid:
+                    self._store.remove(mid)
         except Exception as exc:
             logger.debug("turso_memory mirror failed: %s", exc)
 

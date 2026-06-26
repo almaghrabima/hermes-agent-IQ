@@ -4,6 +4,7 @@ a SyncConfig is supplied, a synced embedded replica). Vectors are NATIVE libSQL
 F32_BLOB columns; similarity is computed in-database via vector_distance_cos."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
@@ -17,6 +18,12 @@ from agent.db_backend import connect
 logger = logging.getLogger(__name__)
 
 _B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"  # Crockford base32
+
+
+def builtin_source_key(target: str, content: str) -> str:
+    """Deterministic, cross-process-stable key for mirrored built-in entries."""
+    digest = hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
+    return f"builtin:{target}:{digest}"
 
 
 def new_ulid() -> str:
@@ -192,6 +199,12 @@ class TursoMemoryStore:
             f"SELECT {','.join(_COLS)} FROM memories WHERE id IN ({qs})", tuple(ids)
         ).fetchall()
         return {r["id"]: {c: r[c] for c in _COLS} for r in rows}
+
+    def find_by_source_key(self, source_key: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT id FROM memories WHERE source_key = ?", (source_key,)
+        ).fetchone()
+        return row["id"] if row else None
 
     def count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
