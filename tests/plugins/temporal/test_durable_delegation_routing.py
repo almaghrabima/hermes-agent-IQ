@@ -1,4 +1,3 @@
-import json
 from plugins.temporal import tools
 
 
@@ -17,6 +16,7 @@ def test_dispatch_durable_delegation_returns_handle(monkeypatch):
         return _FakeClient()
 
     monkeypatch.setattr(tools, "connect", fake_connect)
+    monkeypatch.setattr(tools, "load_config", lambda: {"temporal": {"enabled": True, "target": "localhost:7233", "namespace": "default", "task_queue": "hermes"}})
     out = tools.dispatch_durable_delegation(
         goal="do x",
         context=None,
