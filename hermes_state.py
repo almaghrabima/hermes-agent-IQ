@@ -752,6 +752,13 @@ class SessionDB:
                 # place (backup first; canonical sessions/messages preserved),
                 # then reopen once. This is what lets Desktop/Dashboard
                 # self-heal instead of silently showing "no sessions".
+                #
+                # Repair is sqlite-only: it rewrites ``self.db_path`` directly,
+                # but on the Turso path that file is not the real replica
+                # (``sync.local_path``), and the adapter surfaces libsql errors
+                # as DatabaseError too — so never run the sqlite repair there.
+                if resolve_sync_config("state.db") is not None:
+                    raise
                 if not is_malformed_db_error(exc) or not _claim_repair_attempt(self.db_path):
                     raise
                 logger.error(
