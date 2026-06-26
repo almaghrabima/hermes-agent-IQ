@@ -2391,6 +2391,12 @@ DEFAULT_CONFIG = {
         # Seconds between dispatcher ticks (idle or not). Lower = snappier
         # pickup of newly-ready tasks; higher = less SQL pressure.
         "dispatch_interval_seconds": 60,
+        # Worker spawn backend. "builtin" (default) Popens `hermes chat`
+        # locally and tracks it by PID. "temporal" starts a durable
+        # KanbanTaskWorkflow per card so the worker survives a host/gateway
+        # crash (requires temporal.enabled + a reachable Temporal server;
+        # falls back to "builtin" otherwise). See docs/temporal/.
+        "spawn_provider": "builtin",
         # Auto-block after this many consecutive non-success attempts for the
         # same task/profile (spawn_failed, timed_out, or crashed). Reassignment
         # resets the streak for the new profile.
