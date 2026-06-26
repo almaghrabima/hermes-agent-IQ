@@ -6171,6 +6171,66 @@ def detect_crashed_workers(conn: sqlite3.Connection) -> list[str]:
     return crashed
 
 
+def reap_temporal_worker(
+    conn: sqlite3.Connection,
+    task_id: str,
+    exit_code: int,
+    *,
+    board: Optional[str] = None,
+) -> str:
+    """Record the outcome of a Temporal-supervised worker subprocess after
+    it exits. Mirrors detect_crashed_workers' post-death branches for the
+    single-process case, since the SQLite reapers skip run_kind='temporal'.
+
+    Returns one of:
+      ``"terminal"``           — card is already done/blocked/archived/review
+                                 (worker called the kanban tool itself).
+      ``"rate_limited"``       — exit == KANBAN_RATE_LIMIT_EXIT_CODE; task
+                                 released to 'ready' WITHOUT counting a failure
+                                 so a quota wall can't trip the circuit breaker.
+      ``"protocol_violation"`` — exit 0 but task still 'running'; worker exited
+                                 without a terminal transition — breaker tripped.
+      ``"failed"``             — non-zero exit; failure counted, breaker may trip.
+    """
+    task = get_task(conn, task_id)
+    if task is None:
+        return "terminal"
+    # Worker already drove the card to a terminal state via kanban_complete/
+    # kanban_block — nothing to reap.
+    if task.status in ("done", "blocked", "archived", "review"):
+        return "terminal"
+    # Provider quota wall — release WITHOUT counting a failure.
+    if exit_code == KANBAN_RATE_LIMIT_EXIT_CODE:
+        with write_txn(conn):
+            conn.execute(
+                "UPDATE tasks SET status='ready', claim_lock=NULL, "
+                "claim_expires=NULL, worker_pid=NULL, run_kind=NULL "
+                "WHERE id=? AND status='running'",
+                (task_id,),
+            )
+            _append_event(conn, task_id, "rate_limited", {"exit_code": exit_code})
+        return "rate_limited"
+    if exit_code == 0:
+        # Clean exit but still running → worker never called complete/block.
+        # Trip the breaker immediately (protocol violation), like the
+        # builtin reaper does for rc=0-but-running.
+        _record_task_failure(
+            conn, task_id,
+            error="temporal worker exited 0 without a terminal kanban transition",
+            outcome="crashed", release_claim=True, end_run=True,
+            event_payload_extra={"protocol_violation": True, "run_kind": "temporal"},
+        )
+        return "protocol_violation"
+    # Non-zero exit → count a failure; the breaker may trip to blocked.
+    _record_task_failure(
+        conn, task_id,
+        error=f"temporal worker exited {exit_code}",
+        outcome="crashed", release_claim=True, end_run=True,
+        event_payload_extra={"exit_code": exit_code, "run_kind": "temporal"},
+    )
+    return "failed"
+
+
 def _record_task_failure(
     conn: sqlite3.Connection,
     task_id: str,
