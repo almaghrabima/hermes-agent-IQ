@@ -23,6 +23,7 @@ import threading
 import time
 from pathlib import Path
 
+from agent.db_backend import connect as _backend_connect, resolve_sync_config
 from agent.memory_manager import sanitize_context
 from hermes_constants import get_hermes_home
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
@@ -720,8 +721,11 @@ class SessionDB:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
             def _connect_and_init():
-                self._conn = sqlite3.connect(
+                sync = resolve_sync_config("state.db")
+                self._conn = _backend_connect(
                     str(self.db_path),
+                    label="state.db",
+                    sync=sync,
                     check_same_thread=False,
                     # Short timeout — application-level retry with random
                     # jitter handles contention instead of sitting in
@@ -733,7 +737,8 @@ class SessionDB:
                     isolation_level=None,
                 )
                 self._conn.row_factory = sqlite3.Row
-                apply_wal_with_fallback(self._conn, db_label="state.db")
+                if sync is None:
+                    apply_wal_with_fallback(self._conn, db_label="state.db")
                 self._conn.execute("PRAGMA foreign_keys=ON")
                 self._init_schema()
 
@@ -747,6 +752,13 @@ class SessionDB:
                 # place (backup first; canonical sessions/messages preserved),
                 # then reopen once. This is what lets Desktop/Dashboard
                 # self-heal instead of silently showing "no sessions".
+                #
+                # Repair is sqlite-only: it rewrites ``self.db_path`` directly,
+                # but on the Turso path that file is not the real replica
+                # (``sync.local_path``), and the adapter surfaces libsql errors
+                # as DatabaseError too — so never run the sqlite repair there.
+                if resolve_sync_config("state.db") is not None:
+                    raise
                 if not is_malformed_db_error(exc) or not _claim_repair_attempt(self.db_path):
                     raise
                 logger.error(
@@ -828,13 +840,20 @@ class SessionDB:
     def _sqlite_supports_fts5(self, cursor: sqlite3.Cursor) -> bool:
         try:
             cursor.execute("CREATE VIRTUAL TABLE temp._hermes_fts5_probe USING fts5(x)")
-            cursor.execute("DROP TABLE temp._hermes_fts5_probe")
-            return True
         except sqlite3.OperationalError as exc:
             if not self._is_fts5_unavailable_error(exc):
                 raise
             self._warn_fts5_unavailable(exc)
             return False
+        # The CREATE succeeding is the capability proof. Dropping the probe table
+        # is best-effort cleanup: on libsql/Turso embedded replicas a temp-schema
+        # table created over the remote (Hrana) stream may not persist to the
+        # DROP ("no such table"), which must not fail FTS5 detection.
+        try:
+            cursor.execute("DROP TABLE IF EXISTS temp._hermes_fts5_probe")
+        except sqlite3.OperationalError:
+            pass
+        return True
 
     @staticmethod
     def _drop_fts_triggers(cursor: sqlite3.Cursor) -> None:
@@ -1020,6 +1039,15 @@ class SessionDB:
                     self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                 except Exception:
                     pass
+                # Flush local writes to the Turso cloud primary before closing so
+                # a multi-device user sees this session on their other devices.
+                # No-op for stdlib sqlite3 (no .sync attribute).
+                sync_fn = getattr(self._conn, "sync", None)
+                if callable(sync_fn):
+                    try:
+                        sync_fn()
+                    except Exception:
+                        logger.debug("Turso shutdown sync failed", exc_info=True)
                 self._conn.close()
                 self._conn = None
 
