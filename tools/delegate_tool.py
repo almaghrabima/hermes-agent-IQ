@@ -2081,6 +2081,7 @@ def delegate_task(
     acp_args: Optional[List[str]] = None,
     role: Optional[str] = None,
     background: Optional[bool] = None,
+    durable: Optional[bool] = None,
     parent_agent=None,
 ) -> str:
     """
@@ -2097,6 +2098,31 @@ def delegate_task(
 
     Returns JSON with results array, one entry per task.
     """
+    # Durable routing — checked before parent_agent guard because Temporal
+    # dispatch does not require a live parent agent context.
+    durable = is_truthy_value(durable, default=False) if durable is not None else False
+    if durable:
+        _bg = is_truthy_value(background, default=False) if background is not None else False
+        if tasks:
+            return json.dumps({"status": "error", "error": "delegate_task durable=true does not support batch (tasks=[...]) in Phase 2; dispatch durable single-goal delegations individually."})
+        if not _bg:
+            return json.dumps({"status": "error", "error": "delegate_task durable=true requires background=true."})
+        cfg = _load_config()
+        if not ((cfg.get("temporal") or {}).get("enabled")):
+            return json.dumps({"status": "error",
+                "error": "delegate_task durable=true requires temporal.enabled; "
+                         "see docs/temporal/. Not falling back to non-durable."})
+        from plugins.temporal.tools import dispatch_durable_delegation
+        from tools.approval import get_current_session_key
+        try:
+            out = dispatch_durable_delegation(
+                goal=goal, context=context, toolsets=toolsets,
+                role=(role or "leaf"), model=None,
+                session_key=get_current_session_key(default="default"))
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"status": "error", "error": f"durable dispatch failed: {e}"})
+        return json.dumps(out)
+
     if parent_agent is None:
         return tool_error("delegate_task requires a parent agent context.")
 
@@ -3118,6 +3144,13 @@ DELEGATE_TASK_SCHEMA = {
                     "compatibility."
                 ),
             },
+            "durable": {
+                "type": "boolean",
+                "description": (
+                    "Run the background subagent as a crash-durable Temporal workflow "
+                    "(requires temporal.enabled)."
+                ),
+            },
             "acp_command": {
                 "type": "string",
                 "description": (
@@ -3180,6 +3213,7 @@ registry.register(
         acp_args=args.get("acp_args"),
         role=args.get("role"),
         background=_model_background_value(args, kw.get("parent_agent")),
+        durable=args.get("durable"),
         parent_agent=kw.get("parent_agent"),
     ),
     check_fn=check_delegate_requirements,

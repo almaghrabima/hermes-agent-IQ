@@ -2761,6 +2761,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         # Track background tasks to prevent garbage collection mid-execution
         self._background_tasks: set = set()
 
+        # Startup reconciliation: backfill any durable-delegation results that
+        # completed in Temporal while no Hermes process was alive.
+        try:
+            from plugins.temporal.delivery import reconcile_from_temporal
+            reconcile_from_temporal()
+        except Exception:
+            pass
+
 
     def _wire_teams_pipeline_runtime(self) -> None:
         """Bind the Teams meeting pipeline runtime to Graph webhook ingress.
@@ -9871,6 +9879,19 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                             logger.error("Watch notification injection error: %s", e2)
             except Exception as e:
                 logger.debug("Watch queue drain error: %s", e)
+
+            # Drain durable-delegation outbox rows for this gateway session into
+            # the completion queue so async delegation watchers pick them up.
+            try:
+                from plugins.temporal.delivery import drain_outbox_for_sessions
+                from tools.process_registry import process_registry as _pr
+                _live_keys = list(self.session_store._entries.keys())  # noqa: SLF001
+                if session_key and session_key not in _live_keys:
+                    _live_keys.append(session_key)
+                for _evt in drain_outbox_for_sessions(_live_keys):
+                    _pr.completion_queue.put(_evt)
+            except Exception:
+                pass
 
             # NOTE: Dangerous command approvals are now handled inline by the
             # blocking gateway approval mechanism in tools/approval.py.  The agent
