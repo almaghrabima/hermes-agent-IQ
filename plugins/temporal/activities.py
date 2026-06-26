@@ -41,13 +41,26 @@ def execute_durable_step(step: dict) -> dict:
     return {"name": step.get("name", ""), "ok": ok, "result": result}
 
 
-# Temporal activity wrapper — imported lazily so non-temporal runs never import temporalio.
-def _make_activity():
-    import asyncio
+# Temporal activity wrappers — imported lazily so non-temporal runs never import temporalio.
+def _make_activities():
     from temporalio import activity  # type: ignore
+    import asyncio
 
     @activity.defn(name="run_step")
     async def run_step_activity(step: dict) -> dict:
         return await asyncio.to_thread(execute_durable_step, step)
 
-    return run_step_activity
+    @activity.defn(name="record_outbox")
+    async def record_outbox_activity(payload: dict) -> None:
+        from plugins.temporal import outbox
+        await asyncio.to_thread(
+            outbox.record_completion,
+            payload["run_id"], payload["session_key"], payload["status"], payload["block"],
+        )
+
+    return [run_step_activity, record_outbox_activity]
+
+
+def _make_activity():
+    """Back-compat: return only the run_step activity (Phase 1 worker used [_make_activity()])."""
+    return _make_activities()[0]

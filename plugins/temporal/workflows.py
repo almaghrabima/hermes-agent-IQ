@@ -42,12 +42,54 @@ try:
                 results.append(r)
             return {"steps": results, "completed": len(results)}
 
+    @_wf.defn(name="BackgroundDelegationWorkflow")
+    class BackgroundDelegationWorkflow:
+        @_wf.run
+        async def run(self, params: dict) -> dict:
+            # params: {goal, context, toolsets, role, model, session_key, run_id, retry, step_timeout_seconds}
+            retry = params.get("retry") or {}
+            timeout_s = int(params.get("step_timeout_seconds", 600))
+            policy = _RetryPolicy(
+                maximum_attempts=int(retry.get("max_attempts", 3)),
+                initial_interval=timedelta(seconds=int(retry.get("initial_interval_seconds", 1))),
+                backoff_coefficient=float(retry.get("backoff_coefficient", 2.0)),
+            )
+            step = {"name": "delegation", "prompt": params["goal"]}
+            result = await _wf.execute_activity(
+                "run_step", step,
+                start_to_close_timeout=timedelta(seconds=timeout_s), retry_policy=policy,
+            )
+            block = {
+                "goal": params.get("goal", ""), "context": params.get("context"),
+                "toolsets": params.get("toolsets"), "role": params.get("role"),
+                "model": params.get("model"),
+                "summary": result.get("result"), "error": None if result.get("ok") else result.get("result"),
+                "status": "completed" if result.get("ok") else "failed",
+            }
+            await _wf.execute_activity(
+                "record_outbox",
+                {"run_id": params["run_id"], "session_key": params.get("session_key", "default"),
+                 "status": block["status"], "block": block},
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=_RetryPolicy(maximum_attempts=10),
+            )
+            return {"run_id": params["run_id"], "status": block["status"]}
+
     def _make_workflow() -> type:
         return DurableRunWorkflow
+
+    def _make_background_workflow() -> type:
+        return BackgroundDelegationWorkflow
 
 except ImportError:
 
     def _make_workflow() -> type:  # type: ignore[misc]
+        raise ImportError(
+            "temporalio is required for the durable orchestration worker; "
+            "install the optional extra: uv pip install -e '.[temporal]'"
+        )
+
+    def _make_background_workflow() -> type:  # type: ignore[misc]
         raise ImportError(
             "temporalio is required for the durable orchestration worker; "
             "install the optional extra: uv pip install -e '.[temporal]'"
