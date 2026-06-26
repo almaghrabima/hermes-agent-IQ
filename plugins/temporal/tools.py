@@ -230,11 +230,11 @@ def handle_durable_ask(args: dict, **kw) -> str:
     return json.dumps(out)
 
 
-def signal_human_input(run_id: str, answer: str, session_key: str) -> dict:
+def signal_human_input(run_id: str, answer: str, session_key: str, *, trusted: bool = False) -> dict:
     row = _outbox.get_row(f"{run_id}:waiting")
     if row is None:
         return {"status": "error", "error": f"no pending durable_ask for run_id {run_id}"}
-    if (row.get("session_key") or "default") != (session_key or "default"):
+    if not trusted and (row.get("session_key") or "default") != (session_key or "default"):
         return {"status": "error", "error": "not authorized: respond must come from the originating session"}
     s = resolve_temporal_config(load_config())
 

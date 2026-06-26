@@ -46,8 +46,7 @@ def cmd_temporal(args) -> int:
     """Dispatch the `hermes temporal <subcommand>`."""
     if getattr(args, "temporal_command", None) == "respond":
         from plugins.temporal.tools import signal_human_input
-        from tools.approval import get_current_session_key
-        res = signal_human_input(args.run_id, args.answer, get_current_session_key(default="default"))
+        res = signal_human_input(args.run_id, args.answer, "", trusted=True)
         print(res.get("error") or f"Responded to {args.run_id}.")
         return 0 if res.get("status") == "ok" else 1
     return cmd_temporal_worker(args)  # default: worker

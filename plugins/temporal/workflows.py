@@ -95,6 +95,7 @@ try:
         def __init__(self) -> None:
             self._answer = None
             self._answered = False
+            self._session_key = "default"
 
         @_wf.signal(name="respond")
         def respond(self, answer: str) -> None:
