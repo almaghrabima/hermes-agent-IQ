@@ -10,8 +10,12 @@ from plugins.temporal import outbox, delivery
 
 pytestmark = pytest.mark.integration
 
+_CAPTURED_STEP: dict = {}
+
 @activity.defn(name="run_step")
 async def ok_step(step: dict) -> dict:
+    _CAPTURED_STEP.clear()
+    _CAPTURED_STEP.update(step)
     return {"name": step.get("name", ""), "ok": True, "result": "answer"}
 
 @activity.defn(name="record_outbox")
@@ -28,8 +32,17 @@ async def test_durable_delegation_delivers_after_restart(tmp_path, monkeypatch):
                           workflows=[_make_background_workflow()], activities=[ok_step, real_record]):
             wf_result = await env.client.execute_workflow(
                 "BackgroundDelegationWorkflow",
-                {"goal": "q", "session_key": "sessA", "run_id": run_id},
+                {"goal": "q", "session_key": "sessA", "run_id": run_id,
+                 "context": "ctx facts", "toolsets": ["web"], "role": "orchestrator"},
                 id=run_id, task_queue=tq)
+    # Regression: the workflow must pass the delegation params down into the
+    # step so the subagent actually runs with the requested context/toolsets/role.
+    assert _CAPTURED_STEP.get("context") == "ctx facts", (
+        f"Expected context forwarded into step, got: {_CAPTURED_STEP}")
+    assert _CAPTURED_STEP.get("toolsets") == ["web"], (
+        f"Expected toolsets forwarded into step, got: {_CAPTURED_STEP}")
+    assert _CAPTURED_STEP.get("role") == "orchestrator", (
+        f"Expected role forwarded into step, got: {_CAPTURED_STEP}")
     # FIX 1: workflow return value must carry session_key and the real block
     assert wf_result.get("session_key") == "sessA", (
         f"Expected session_key='sessA' in workflow result, got: {wf_result}"
