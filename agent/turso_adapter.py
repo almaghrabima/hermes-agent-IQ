@@ -25,9 +25,12 @@ def _translate():
     graceful-degradation paths.
 
     Mapping (message-based, case-insensitive):
-    * "constraint"        → sqlite3.IntegrityError
-    * "locked" / "busy"  → sqlite3.OperationalError
-    * anything else       → sqlite3.OperationalError  (safe default)
+    * "constraint failed" → sqlite3.IntegrityError  (matches all of UNIQUE /
+      NOT NULL / CHECK / FOREIGN KEY "… constraint failed: …"; the exact phrase
+      avoids misrouting errors that merely mention a "constraint"-named column,
+      e.g. "no such column: my_constraint_col")
+    * anything else       → sqlite3.OperationalError  (safe default, incl.
+      "database is locked" / "busy" — what SessionDB's retry loop catches)
 
     Already-sqlite3 exceptions are re-raised unchanged (no double-wrapping).
     ``KeyboardInterrupt`` / ``SystemExit`` are never caught.
@@ -38,8 +41,7 @@ def _translate():
         raise  # already the right type — don't double-wrap
     except Exception as exc:
         msg = str(exc)
-        lower = msg.lower()
-        if "constraint" in lower:
+        if "constraint failed" in msg.lower():
             raise sqlite3.IntegrityError(msg) from exc
         raise sqlite3.OperationalError(msg) from exc
 

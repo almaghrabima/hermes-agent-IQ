@@ -220,8 +220,8 @@ def test_unique_constraint_raises_integrity_error(tmp_path):
     """Duplicate primary key must surface as sqlite3.IntegrityError.
 
     libsql raises ValueError("UNIQUE constraint failed: …"); the adapter must
-    detect the word 'constraint' in the message and raise sqlite3.IntegrityError
-    so SessionDB's constraint-handling graceful-degradation path fires.
+    detect the phrase 'constraint failed' in the message and raise
+    sqlite3.IntegrityError so SessionDB's constraint-handling path fires.
     """
     conn = _conn(tmp_path)
     conn.execute("CREATE TABLE uk (id INTEGER PRIMARY KEY)")
@@ -249,4 +249,27 @@ def test_executescript_returns_usable_cursor(tmp_path):
     # Must not raise AttributeError
     result = cur.fetchone()
     assert result is None  # empty result set is fine; just must not crash
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 12: "constraint" substring must NOT misclassify non-integrity errors
+# (fix wave 2: match the phrase 'constraint failed', not bare 'constraint',
+#  so an identifier merely containing the word doesn't dodge OperationalError)
+# ---------------------------------------------------------------------------
+
+
+def test_constraint_named_identifier_is_operational_not_integrity(tmp_path):
+    """A non-integrity error whose message merely contains the word 'constraint'
+    must surface as sqlite3.OperationalError, NOT sqlite3.IntegrityError.
+
+    libsql raises ValueError("no such column: my_constraint_col") for the query
+    below. Bare-substring matching on 'constraint' would misroute it to
+    IntegrityError and so dodge SessionDB's `except sqlite3.OperationalError`
+    handlers. The mapping keys on 'constraint failed' to avoid this.
+    """
+    conn = _conn(tmp_path)
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+    with pytest.raises(sqlite3.OperationalError):
+        conn.execute("SELECT my_constraint_col FROM t")
     conn.close()
