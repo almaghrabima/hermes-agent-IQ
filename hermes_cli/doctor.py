@@ -268,11 +268,20 @@ def _database_backend_status() -> tuple[bool, str]:
 def _check_database_backend(issues: list[str]) -> None:
     _section("Database Backend")
     ok, detail = _database_backend_status()
-    if ok:
-        check_ok(detail)
-    else:
+    if not ok:
         check_fail("Database backend misconfigured", detail)
         issues.append("Fix database.turso config in config.yaml / set TURSO_AUTH_TOKEN in .env")
+        return
+    check_ok(detail)
+    if "turso" in detail.lower():
+        # Surface the embedded-replica conflict model so multi-device users
+        # know the failure mode before it bites. libsql sync is last-push-wins
+        # at row level: editing the SAME session on two devices at once can
+        # silently drop one device's messages. Safe with one active device.
+        check_warn(
+            "Turso sync is last-push-wins: editing the same session on two "
+            "devices at once can drop messages — safe with one active device."
+        )
 
 
 def _check_s6_supervision(issues: list[str]) -> None:
