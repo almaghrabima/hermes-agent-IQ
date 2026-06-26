@@ -89,6 +89,7 @@ class TursoMemoryProvider(MemoryProvider):
                else int((self._config.get("embedding") or {}).get("dim", 1024)))
         db_path = local_path if sync else (get_hermes_home() / "memories" / "memory.db")
         self._store = TursoMemoryStore(db_path=db_path, dim=dim, sync=sync)
+        self._reconcile_builtin()
 
     def _embed(self, text: str):
         if self._encoder is None or self._encoder_failed:
@@ -191,6 +192,77 @@ class TursoMemoryProvider(MemoryProvider):
             f"Active, {total} memories, semantic recall on. Use memory(action='remember') "
             "for durable facts; relevant memories are auto-recalled each turn."
         )
+
+    def _reconcile_builtin(self) -> None:
+        """Import (or refresh) built-in MEMORY.md / USER.md entries into the store.
+
+        Uses the same entry delimiter as tools/memory_tool.py: ENTRY_DELIMITER = "\\n§\\n".
+        Rows are keyed by builtin_source_key() — the same deterministic helper used
+        in on_memory_write() — so re-running is idempotent (upsert, not duplicate).
+        Rows that have been removed from the source files are purged.
+        """
+        from hermes_constants import get_hermes_home
+
+        _ENTRY_DELIMITER = "\n§\n"   # mirrors tools/memory_tool.ENTRY_DELIMITER exactly
+
+        base = get_hermes_home() / "memories"
+        wanted: dict[str, tuple[str, str]] = {}   # source_key -> (target, content)
+        for fname, target in (("MEMORY.md", "memory"), ("USER.md", "user")):
+            fp = base / fname
+            if not fp.exists():
+                continue
+            try:
+                text = fp.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            for raw in text.split(_ENTRY_DELIMITER):
+                entry = raw.strip()
+                if not entry:
+                    continue
+                key = builtin_source_key(target, entry)
+                wanted[key] = (target, entry)
+        if not self._store:
+            return
+        # add / refresh wanted entries (upsert via source_key unique index)
+        for key, (target, content) in wanted.items():
+            vec, model = self._embed(content)
+            kind = "file_user" if target == "user" else "file_memory"
+            self._store.add(content, kind=kind, source="builtin",
+                            source_key=key, embedding=vec, embed_model=model)
+        # drop builtin rows that no longer exist in the source files
+        rows = self._store._conn.execute(
+            "SELECT id, source_key FROM memories WHERE source = 'builtin'"
+        ).fetchall()
+        for row in rows:
+            if row["source_key"] not in wanted:
+                self._store.remove(row["id"])
+
+    def on_session_switch(self, new_session_id: str, *, parent_session_id: str = "",
+                          reset: bool = False, rewound: bool = False, **kwargs) -> None:
+        self._session_id = new_session_id
+        if reset and self._store:
+            self._reconcile_builtin()
+
+    def _reindex(self) -> int:
+        """Re-embed any rows whose embed_model differs from the active encoder."""
+        if not self._store or self._encoder is None:
+            return 0
+        from .store import _vec_lit, _now
+        rows = self._store._conn.execute(
+            "SELECT id, content FROM memories WHERE embed_model IS NOT ? OR embedding IS NULL",
+            (self._encoder.model_id,),
+        ).fetchall()
+        n = 0
+        for row in rows:
+            vec, model = self._embed(row["content"])
+            if vec is None:
+                continue
+            self._store._conn.execute(
+                "UPDATE memories SET embedding=vector32(?), embed_model=?, updated_at=? WHERE id=?",
+                (_vec_lit(vec), model, _now(), row["id"]),
+            )
+            n += 1
+        return n
 
     def shutdown(self) -> None:
         if self._store:
