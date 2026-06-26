@@ -253,6 +253,28 @@ def _check_version_consistency(issues: list[str]) -> None:
         )
 
 
+def _database_backend_status() -> tuple[bool, str]:
+    """Return (ok, detail) for the configured DB backend. Never raises."""
+    from agent.db_backend import resolve_sync_config, BackendConfigError
+    try:
+        sync = resolve_sync_config("state.db")
+    except BackendConfigError as exc:
+        return (False, str(exc))
+    if sync is None:
+        return (True, "Database backend: sqlite (local).")
+    return (True, f"Database backend: turso (sync_url={sync.sync_url}, interval={sync.sync_interval}s).")
+
+
+def _check_database_backend(issues: list[str]) -> None:
+    _section("Database Backend")
+    ok, detail = _database_backend_status()
+    if ok:
+        check_ok(detail)
+    else:
+        check_fail("Database backend misconfigured", detail)
+        issues.append("Fix database.turso config in config.yaml / set TURSO_AUTH_TOKEN in .env")
+
+
 def _check_s6_supervision(issues: list[str]) -> None:
     """Inside a container under our s6 /init, surface what s6 sees.
 
@@ -1040,6 +1062,8 @@ def run_doctor(args):
                     issues.append(ci.message)
         except Exception:
             pass
+
+    _check_database_backend(issues)
 
     _section("xAI Model Retirement (May 15, 2026)")
 
