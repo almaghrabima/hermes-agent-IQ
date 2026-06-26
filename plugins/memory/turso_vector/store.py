@@ -1,9 +1,20 @@
 """libSQL-backed vector store for turso_vector memory. All SQL lives here."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from . import weighting
+
+
+def _days_between(earlier_iso: str, later_iso: str) -> float:
+    try:
+        a = datetime.fromisoformat(earlier_iso)
+        b = datetime.fromisoformat(later_iso)
+        return max(0.0, (b - a).total_seconds() / 86400.0)
+    except (ValueError, TypeError):
+        return 0.0
+
 
 _CREATE = """
 CREATE TABLE IF NOT EXISTS memories(
@@ -88,3 +99,51 @@ class VectorStore:
             out.append(rec)
         out.sort(key=lambda x: x["score"], reverse=True)
         return out[:top_k]
+
+    def mark_used(self, ids: List[int], now: str) -> None:
+        if not ids:
+            return
+        for mid in ids:
+            self._conn.execute(
+                "UPDATE memories SET last_used_at=?, use_count=use_count+1 WHERE id=?",
+                (now, mid),
+            )
+        self._conn.commit()
+
+    def apply_rating(self, mem_id: int, score: int, alpha: float) -> None:
+        row = self._conn.execute(
+            "SELECT weight, ema_rating FROM memories WHERE id=?", (mem_id,)
+        ).fetchone()
+        if row is None:
+            return
+        weight, prev_ema = float(row[0]), (None if row[1] is None else float(row[1]))
+        new_ema = weighting.ema_update(prev_ema, score, alpha)
+        new_weight = weighting.weight_from_ema(weight, new_ema)
+        self._conn.execute(
+            "UPDATE memories SET weight=?, ema_rating=? WHERE id=?",
+            (new_weight, new_ema, mem_id),
+        )
+        self._conn.commit()
+
+    def decay_and_prune(self, *, ids: List[int], now: str, decay_rate: float,
+                        weight_floor: float) -> int:
+        for mid in ids:
+            row = self._conn.execute(
+                "SELECT weight, last_used_at, created_at FROM memories WHERE id=?",
+                (mid,),
+            ).fetchone()
+            if row is None:
+                continue
+            weight = float(row[0])
+            ref = row[1] or row[2]
+            days = _days_between(ref, now)
+            new_weight = weighting.decay_weight(weight, days, decay_rate)
+            self._conn.execute("UPDATE memories SET weight=? WHERE id=?", (new_weight, mid))
+        cur = self._conn.execute("DELETE FROM memories WHERE weight < ?", (weight_floor,))
+        self._conn.commit()
+        return int(cur.rowcount)
+
+    def delete(self, mem_id: int) -> bool:
+        cur = self._conn.execute("DELETE FROM memories WHERE id=?", (mem_id,))
+        self._conn.commit()
+        return int(cur.rowcount) > 0
