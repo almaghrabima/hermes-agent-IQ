@@ -10,3 +10,49 @@ def test_rlm_retry_policy_uses_max_attempts():
 
 def test_make_rlm_run_workflow_returns_class():
     assert workflows._make_rlm_run_workflow().__name__ == "RlmRunWorkflow"
+
+
+@pytest.mark.asyncio
+async def test_rlm_workflow_runs_and_delivers(monkeypatch, tmp_path):
+    """End-to-end: RlmRunWorkflow → run_rlm_durable (stubbed) → record_outbox → drain."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    from plugins.temporal import activities as A
+    from plugins.temporal.workflows import _make_rlm_run_workflow
+    from plugins.temporal import delivery
+    import tools.rlm_tool as rlm_mod
+
+    monkeypatch.setattr(
+        rlm_mod, "rlm_tool",
+        lambda **kw: '{"status":"success","result":"DURABLE-ANSWER","usage":{},"log_path":""}',
+    )
+
+    WF = _make_rlm_run_workflow()
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="tq",
+            workflows=[WF],
+            activities=A._make_activities(),
+        ):
+            result = await env.client.execute_workflow(
+                "RlmRunWorkflow",
+                {
+                    "rlm_args": {"query": "q"},
+                    "session_key": "sess-e2e",
+                    "run_id": "durable-rlm-e2e",
+                    "max_attempts": 2,
+                    "timeout_seconds": 30,
+                },
+                id="durable-rlm-e2e",
+                task_queue="tq",
+            )
+    assert result["status"] == "completed"
+    assert result["block"]["summary"] == "DURABLE-ANSWER"
+    # It landed in the outbox and drains to the originating session.
+    events = delivery.drain_outbox_for_sessions(["sess-e2e"])
+    assert any(
+        e["delegation_id"] == "durable-rlm-e2e" and e["summary"] == "DURABLE-ANSWER"
+        for e in events
+    )
