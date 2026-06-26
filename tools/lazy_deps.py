@@ -202,6 +202,11 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
 
     # ─── Database backends ───────────────────────────────────────────────
     "database.turso": ("libsql==0.1.11",),
+
+    # ─── Turso memory provider (sub-project #3) ────────────────────────────
+    # fastembed (ONNX) for local embeddings. Vector search runs natively in
+    # libSQL (vector_distance_cos), so no NumPy is needed.
+    "memory.turso_memory.local": ("fastembed==0.7.1",),
 }
 
 
