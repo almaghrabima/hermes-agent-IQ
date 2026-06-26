@@ -1,6 +1,5 @@
 from __future__ import annotations
 from datetime import datetime, timedelta
-from typing import Any
 from plugins.cron_providers.temporal.schedules import job_to_spec, schedule_id, SCHEDULE_PREFIX
 
 
@@ -44,13 +43,14 @@ async def upsert_schedule(job: dict) -> None:
     from plugins.temporal.client import connect
     from plugins.temporal.tconfig import resolve_temporal_config
     from hermes_cli.config import load_config
+    from temporalio.client import ScheduleAlreadyRunningError  # type: ignore
     s = resolve_temporal_config(load_config())
     client = await connect(s)
     sid = schedule_id(job["id"])
     sched = build_schedule(job_to_spec(job), job_id=job["id"], task_queue=s.task_queue)
     try:
         await client.create_schedule(sid, sched)
-    except Exception:
+    except ScheduleAlreadyRunningError:
         # Already exists → update (idempotent create-or-update).
         handle = client.get_schedule_handle(sid)
         await handle.delete()
