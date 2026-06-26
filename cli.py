@@ -12515,6 +12515,13 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             )
         except Exception:
             pass
+        # Startup reconciliation: backfill any durable-delegation results that
+        # completed in Temporal while no Hermes process was alive.
+        try:
+            from plugins.temporal.delivery import reconcile_from_temporal
+            reconcile_from_temporal()
+        except Exception:
+            pass
         if self.preloaded_skills and not self._startup_skills_line_shown:
             skills_label = ", ".join(self.preloaded_skills)
             self._console_print(
@@ -14427,6 +14434,15 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                                 from tools.process_registry import process_registry
                                 for _evt, _synth in process_registry.drain_notifications():
                                     self._pending_input.put(_synth)
+                            except Exception:
+                                pass
+                            # Drain durable-delegation outbox rows from Temporal into
+                            # the completion queue so they re-enter the conversation.
+                            try:
+                                from plugins.temporal.delivery import drain_outbox_for_sessions
+                                from tools.process_registry import process_registry
+                                for _evt in drain_outbox_for_sessions(["default"]):
+                                    process_registry.completion_queue.put(_evt)
                             except Exception:
                                 pass
                         continue
