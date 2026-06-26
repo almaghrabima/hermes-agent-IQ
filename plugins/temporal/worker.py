@@ -33,3 +33,21 @@ def cmd_temporal_worker(args) -> int:
         return 1
     asyncio.run(run_worker(s))
     return 0
+
+
+def setup_respond_parser(subparsers) -> None:
+    """Attach `hermes temporal respond` (called by register_cli_command setup_fn)."""
+    p = subparsers.add_parser("respond", help="Answer a waiting durable_ask")
+    p.add_argument("run_id")
+    p.add_argument("answer")
+
+
+def cmd_temporal(args) -> int:
+    """Dispatch the `hermes temporal <subcommand>`."""
+    if getattr(args, "temporal_command", None) == "respond":
+        from plugins.temporal.tools import signal_human_input
+        from tools.approval import get_current_session_key
+        res = signal_human_input(args.run_id, args.answer, get_current_session_key(default="default"))
+        print(res.get("error") or f"Responded to {args.run_id}.")
+        return 0 if res.get("status") == "ok" else 1
+    return cmd_temporal_worker(args)  # default: worker
