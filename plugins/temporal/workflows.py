@@ -73,7 +73,7 @@ try:
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=_RetryPolicy(maximum_attempts=10),
             )
-            return {"run_id": params["run_id"], "status": block["status"]}
+            return {"run_id": params["run_id"], "session_key": params.get("session_key", "default"), "status": block["status"], "block": block}
 
     def _make_workflow() -> type:
         return DurableRunWorkflow

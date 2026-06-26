@@ -26,10 +26,19 @@ async def test_durable_delegation_delivers_after_restart(tmp_path, monkeypatch):
         run_id = f"durable-deleg-{uuid.uuid4().hex[:8]}"
         async with Worker(env.client, task_queue=tq,
                           workflows=[_make_background_workflow()], activities=[ok_step, real_record]):
-            await env.client.execute_workflow(
+            wf_result = await env.client.execute_workflow(
                 "BackgroundDelegationWorkflow",
                 {"goal": "q", "session_key": "sessA", "run_id": run_id},
                 id=run_id, task_queue=tq)
+    # FIX 1: workflow return value must carry session_key and the real block
+    assert wf_result.get("session_key") == "sessA", (
+        f"Expected session_key='sessA' in workflow result, got: {wf_result}"
+    )
+    assert "block" in wf_result, f"Expected 'block' key in workflow result, got: {wf_result}"
+    block = wf_result["block"]
+    assert block.get("summary") == "answer", (
+        f"Expected block['summary']='answer' (real result), got: {block}"
+    )
     # "restart": a fresh delivery call (new process) finds the outbox row
     events = delivery.drain_outbox_for_sessions(["sessA"])
     assert len(events) == 1

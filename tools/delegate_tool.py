@@ -2101,7 +2101,12 @@ def delegate_task(
     # Durable routing — checked before parent_agent guard because Temporal
     # dispatch does not require a live parent agent context.
     durable = is_truthy_value(durable, default=False) if durable is not None else False
-    if durable and (is_truthy_value(background, default=False) if background is not None else False):
+    if durable:
+        _bg = is_truthy_value(background, default=False) if background is not None else False
+        if tasks:
+            return json.dumps({"status": "error", "error": "delegate_task durable=true does not support batch (tasks=[...]) in Phase 2; dispatch durable single-goal delegations individually."})
+        if not _bg:
+            return json.dumps({"status": "error", "error": "delegate_task durable=true requires background=true."})
         cfg = _load_config()
         if not ((cfg.get("temporal") or {}).get("enabled")):
             return json.dumps({"status": "error",

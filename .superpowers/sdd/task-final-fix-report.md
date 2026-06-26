@@ -94,3 +94,64 @@ Summary: 1 files, 1 tests passed, 0 failed (100% complete) in 0.8s (24 workers)
 ```
 All checks passed!
 ```
+
+---
+
+## Final-review fix wave — Temporal Phase 2 (2026-06-26)
+
+### FIX 1: Faithful reconcile data from `BackgroundDelegationWorkflow`
+
+**File:** `plugins/temporal/workflows.py`
+
+Changed the final `return` in `BackgroundDelegationWorkflow.run` from `{"run_id": ..., "status": ...}` to include the full reconcile payload:
+```python
+return {"run_id": params["run_id"], "session_key": params.get("session_key", "default"), "status": block["status"], "block": block}
+```
+
+**File:** `plugins/temporal/tools.py`
+
+Updated `list_completed_durable_delegations()` to use the real workflow result:
+- `session_key` now comes from `res.get("session_key", "default")` (was hardcoded `"default"`)
+- `block` now comes from `res.get("block", {})` (was a minimal `{"summary": res.get("status"), "goal": ""}` stub)
+
+### FIX 2: Reject durable batch dispatches
+
+**File:** `tools/delegate_tool.py`
+
+When `durable=true` and `tasks` is non-empty, returns:
+```json
+{"status":"error","error":"delegate_task durable=true does not support batch (tasks=[...]) in Phase 2; dispatch durable single-goal delegations individually."}
+```
+before any dispatch happens.
+
+### FIX 3: No silent non-durable fallback when `background` is falsy
+
+**File:** `tools/delegate_tool.py`
+
+Restructured the durable guard so the `if durable:` block now explicitly:
+1. Rejects batch (`tasks`) before checking background
+2. Returns an explicit error when `background` is falsy (`durable=true requires background=true.`) instead of falling through to the in-process path
+
+Non-durable paths are byte-for-byte unchanged.
+
+### Test additions
+
+**`tests/tools/test_delegate_durable.py`** — added:
+- `test_durable_without_background_errors`: durable=True, background=False → status error mentioning "background"
+- `test_durable_rejects_batch`: durable=True, background=True, tasks=[{"goal":"a"}] → status error mentioning "batch"
+- Existing routing-success test already passes background=True
+
+**`tests/plugins/temporal/test_phase2_integration.py`** — extended:
+- Captured `wf_result = await env.client.execute_workflow(...)` return value
+- Asserts `wf_result["session_key"] == "sessA"` (FIX 1 session_key fidelity)
+- Asserts `"block" in wf_result` and `block["summary"] == "answer"` (FIX 1 real block)
+- Existing outbox-drain assertions unchanged
+
+### Verify outputs
+
+```
+py_compile: OK (tools/delegate_tool.py plugins/temporal/workflows.py plugins/temporal/tools.py)
+ruff check: All checks passed!
+Unit tests (tests/tools/test_delegate_durable.py + tests/plugins/temporal/): 26/26 passed, 0 failed (1.2s)
+Integration test (test_phase2_integration.py -m integration): 1/1 passed, 0 failed (0.8s)
+```

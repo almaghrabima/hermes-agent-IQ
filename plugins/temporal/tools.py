@@ -142,9 +142,9 @@ def list_completed_durable_delegations() -> list[dict]:
             out.append(
                 {
                     "run_id": res.get("run_id", wf.id),
-                    "session_key": "default",
+                    "session_key": res.get("session_key", "default"),
                     "status": res.get("status", "completed"),
-                    "block": {"summary": res.get("status"), "goal": ""},
+                    "block": res.get("block", {}),
                 }
             )
         return out
