@@ -1271,6 +1271,10 @@ Design and plan: `docs/temporal/`.
 - **Limitation:** the activity Popens on the worker host, so the worker must reach the
   card's `workspace_path` (same host or shared FS); cross-host workspaces are a
   flagged follow-up.
+- **Limitation:** if heartbeats stall past `heartbeat_timeout` while the subprocess is
+  still alive, Temporal may retry the activity and launch a second subprocess for the
+  same card (at-least-once execution) — the SQLite claim CAS still gates the initial
+  claim, but a card's worker can run twice in this stall case.
 
 ---
 

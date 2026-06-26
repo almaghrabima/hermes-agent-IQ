@@ -131,7 +131,24 @@ def _make_activities():
             payload,
         )
 
-    return [run_step_activity, record_outbox_activity, fire_cron_job_activity, run_kanban_worker_activity]
+    @activity.defn(name="reap_failed_kanban_worker")
+    async def reap_failed_kanban_worker_activity(payload: dict) -> str:
+        def _reap() -> str:
+            from hermes_cli import kanban_db
+            board = payload.get("board")
+            conn = kanban_db.connect(board=board)
+            try:
+                # Non-zero exit routes through reap_temporal_worker's failure path:
+                # _record_task_failure(release_claim=True, end_run=True) → card back to
+                # ready (or blocked when the breaker trips). If the worker actually
+                # finished the card, reap sees a terminal status and no-ops.
+                return kanban_db.reap_temporal_worker(conn, payload["task_id"], 1, board=board)
+            finally:
+                try: conn.close()
+                except Exception: pass  # noqa: BLE001
+        return await asyncio.to_thread(_reap)
+
+    return [run_step_activity, record_outbox_activity, fire_cron_job_activity, run_kanban_worker_activity, reap_failed_kanban_worker_activity]
 
 
 def _make_activity():

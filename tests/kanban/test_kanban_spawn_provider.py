@@ -57,3 +57,25 @@ def test_dispatch_marks_run_kind_temporal_when_provider_tagged(kanban_conn, monk
         "SELECT status, run_kind, worker_pid FROM tasks WHERE id=?", (tid,)).fetchone()
     assert row["run_kind"] == "temporal"
     assert row["worker_pid"] is None
+
+
+def test_dispatch_pid_wins_over_temporal_tag_on_fallback(kanban_conn, monkeypatch):
+    """Regression: when a tagged temporal spawn returns a real pid (Temporal unreachable →
+    builtin fallback), the card must be PID-supervised, NOT marked temporal.
+    A temporal-marked card is invisible to every SQLite reaper; this was the bug."""
+    from hermes_cli import kanban_db
+
+    # Simulate the outage→builtin fallback: tagged temporal spawn that returns a real pid.
+    def fake_fallback_spawn(task, workspace, *, board=None):
+        return 4242  # fallback returned a real pid
+    fake_fallback_spawn._kanban_run_kind = "temporal"
+    monkeypatch.setattr(kanban_db, "resolve_kanban_spawn", lambda cfg=None: fake_fallback_spawn)
+
+    tid = kanban_db.create_task(kanban_conn, title="fallback-task", assignee="default")
+    kanban_db.dispatch_once(kanban_conn)
+
+    row = kanban_conn.execute(
+        "SELECT status, run_kind, worker_pid FROM tasks WHERE id=?", (tid,)).fetchone()
+    # pid was truthy → treated as a real local subprocess, NOT marked temporal
+    assert row["run_kind"] is None, "run_kind must be NULL when a real pid was returned"
+    assert row["worker_pid"] == 4242

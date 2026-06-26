@@ -144,6 +144,10 @@ try:
             )
 
     def _kanban_retry_policy(failure_limit: int):
+        # NOTE: the activity swallows non-zero subprocess EXITS (reaps via SQLite), so
+        # this retry policy governs only INFRA/timeout activity failures — per-card retry
+        # of normal worker failures is driven by the dispatcher re-claim + the SQLite
+        # circuit breaker.
         return _RetryPolicy(maximum_attempts=1 + int(failure_limit))
 
     @_wf.defn(name="KanbanTaskWorkflow")
@@ -153,14 +157,26 @@ try:
             spawn_args = payload["spawn_args"]
             max_runtime = spawn_args.get("max_runtime_seconds") or 3600
             poll = int(payload.get("poll_seconds", 5))
-            return await _wf.execute_activity(
-                "run_kanban_worker",
-                {"task_id": payload["task_id"], "spawn_args": spawn_args,
-                 "board": payload.get("board"), "poll_seconds": poll},
-                start_to_close_timeout=timedelta(seconds=int(max_runtime) + 60),
-                heartbeat_timeout=timedelta(seconds=poll * 6 + 30),
-                retry_policy=_kanban_retry_policy(payload.get("failure_limit", 2)),
-            )
+            try:
+                return await _wf.execute_activity(
+                    "run_kanban_worker",
+                    {"task_id": payload["task_id"], "spawn_args": spawn_args,
+                     "board": payload.get("board"), "poll_seconds": poll},
+                    start_to_close_timeout=timedelta(seconds=int(max_runtime) + 60),
+                    heartbeat_timeout=timedelta(seconds=poll * 6 + 30),
+                    retry_policy=_kanban_retry_policy(payload.get("failure_limit", 2)),
+                )
+            except Exception:
+                # Terminal activity failure (Popen error / timeout / retries exhausted):
+                # the SQLite reapers skip run_kind='temporal', so finalize the card here
+                # instead of orphaning it 'running'.
+                await _wf.execute_activity(
+                    "reap_failed_kanban_worker",
+                    {"task_id": payload["task_id"], "board": payload.get("board")},
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=_RetryPolicy(maximum_attempts=5),
+                )
+                raise
 
     def _make_workflow() -> type:
         return DurableRunWorkflow

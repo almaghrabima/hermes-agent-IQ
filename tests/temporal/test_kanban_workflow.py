@@ -95,3 +95,53 @@ async def test_kanban_workflow_runs_activity_and_completes(monkeypatch):
     assert result["exit_code"] == 0
     assert result["reap"] == "terminal"
     assert seen["code"] == 0
+
+
+@pytest.mark.asyncio
+async def test_kanban_workflow_finalizes_card_on_activity_failure(monkeypatch):
+    """Regression: when _popen_from_spawn_args raises (terminal activity failure),
+    KanbanTaskWorkflow must call reap_failed_kanban_worker to finalize the card
+    instead of orphaning it in 'running' status (SQLite reapers skip temporal rows)."""
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+    from plugins.temporal import activities as A
+    from plugins.temporal.workflows import _make_kanban_task_workflow
+    from hermes_cli import kanban_db
+
+    # Stub Popen to raise — simulates missing hermes binary or broken environment.
+    monkeypatch.setattr(
+        kanban_db, "_popen_from_spawn_args",
+        lambda args: (_ for _ in ()).throw(RuntimeError("no hermes")),
+    )
+    monkeypatch.setattr(kanban_db, "connect", lambda *a, **k: object())
+    reap_calls = []
+    monkeypatch.setattr(
+        kanban_db, "reap_temporal_worker",
+        lambda conn, tid, code, **kw: reap_calls.append({"tid": tid, "code": code}) or "failed",
+    )
+
+    WF = _make_kanban_task_workflow()
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="tq2",
+            workflows=[WF],
+            activities=A._make_activities(),
+        ):
+            with pytest.raises(Exception):
+                await env.client.execute_workflow(
+                    "KanbanTaskWorkflow",
+                    {
+                        "task_id": "t-fail",
+                        "spawn_args": {"argv": [], "max_runtime_seconds": 10},
+                        "board": None,
+                        "failure_limit": 0,  # no retries — fail fast
+                        "poll_seconds": 0,
+                    },
+                    id="hermes-kanban-t-fail-1",
+                    task_queue="tq2",
+                )
+    # The finalizer activity must have been called for the failing task.
+    assert any(c["tid"] == "t-fail" for c in reap_calls), (
+        "reap_temporal_worker was never called — card would be orphaned 'running'"
+    )

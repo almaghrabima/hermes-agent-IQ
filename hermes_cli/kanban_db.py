@@ -7000,10 +7000,16 @@ def _dispatch_once_locked(
                     pid = _spawn(claimed, str(workspace))
             except (TypeError, ValueError):
                 pid = _spawn(claimed, str(workspace))
-            if getattr(_spawn, "_kanban_run_kind", None) == "temporal":
-                _mark_run_temporal(conn, claimed.id)
-            elif pid:
+            if pid:
+                # A truthy pid means a real local subprocess was launched — either the
+                # builtin spawn, OR the temporal spawn's per-tick fallback to builtin when
+                # Temporal was unreachable. Either way it must be PID-supervised, NOT marked
+                # temporal (which would hide it from every reaper).
                 _set_worker_pid(conn, claimed.id, int(pid))
+            elif getattr(_spawn, "_kanban_run_kind", None) == "temporal":
+                # None return from the temporal spawn means the durable workflow actually
+                # started; Temporal is the sole supervisor.
+                _mark_run_temporal(conn, claimed.id)
             # NOTE: we intentionally do NOT reset consecutive_failures
             # here. A successful spawn proves the worker can start but
             # doesn't prove the run will succeed. Under unified
@@ -7097,10 +7103,16 @@ def _dispatch_once_locked(
                     pid = _spawn(claimed, str(workspace))
             except (TypeError, ValueError):
                 pid = _spawn(claimed, str(workspace))
-            if getattr(_spawn, "_kanban_run_kind", None) == "temporal":
-                _mark_run_temporal(conn, claimed.id)
-            elif pid:
+            if pid:
+                # A truthy pid means a real local subprocess was launched — either the
+                # builtin spawn, OR the temporal spawn's per-tick fallback to builtin when
+                # Temporal was unreachable. Either way it must be PID-supervised, NOT marked
+                # temporal (which would hide it from every reaper).
                 _set_worker_pid(conn, claimed.id, int(pid))
+            elif getattr(_spawn, "_kanban_run_kind", None) == "temporal":
+                # None return from the temporal spawn means the durable workflow actually
+                # started; Temporal is the sole supervisor.
+                _mark_run_temporal(conn, claimed.id)
             result.spawned.append((claimed.id, claimed.assignee or "", str(workspace)))
             spawned += 1
         except Exception as exc:
