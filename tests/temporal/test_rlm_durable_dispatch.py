@@ -26,3 +26,20 @@ def test_dispatch_durable_rlm_starts_workflow(monkeypatch):
     assert started["payload"]["session_key"] == "sess-1"
     assert started["payload"]["rlm_args"] == {"query": "q"}
     assert started["payload"]["max_attempts"] == 2
+
+
+def test_reconcile_backfills_rlm(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    from plugins.temporal import delivery, outbox
+    import plugins.temporal.tools as T
+
+    monkeypatch.setattr(
+        T, "list_completed_durable_rlm",
+        lambda: [{"run_id": "durable-rlm-z", "session_key": "s", "status": "completed",
+                  "block": {"goal": "q", "summary": "A", "status": "completed"}}])
+    # delegation list returns nothing so only rlm is backfilled
+    monkeypatch.setattr(T, "list_completed_durable_delegations", lambda: [])
+
+    inserted = delivery.reconcile_from_temporal()
+    assert inserted >= 1
+    assert outbox.has_run("durable-rlm-z")
