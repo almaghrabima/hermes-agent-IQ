@@ -155,3 +155,71 @@ ruff check: All checks passed!
 Unit tests (tests/tools/test_delegate_durable.py + tests/plugins/temporal/): 26/26 passed, 0 failed (1.2s)
 Integration test (test_phase2_integration.py -m integration): 1/1 passed, 0 failed (0.8s)
 ```
+
+---
+
+## Final-review fix wave — Temporal Phase 3 (2026-06-26)
+
+### BUG FIX: `hermes temporal respond` always failed authz
+
+**Root cause:** `signal_human_input` compared `row.session_key` (set to the live
+session key, e.g. `"cli-abc"`) against `get_current_session_key()` from a fresh
+subprocess, which always returns `"default"`. Session keys never matched →
+every standalone CLI invocation returned "not authorized".
+
+**File:** `plugins/temporal/tools.py`
+
+Added `trusted: bool = False` keyword-only parameter to `signal_human_input`.
+When `trusted=True` the session-key check is skipped entirely:
+```python
+def signal_human_input(run_id, answer, session_key, *, trusted=False):
+    ...
+    if not trusted and (row.get("session_key") or "default") != (session_key or "default"):
+        return {"status": "error", "error": "not authorized: ..."}
+```
+
+**File:** `plugins/temporal/worker.py`
+
+`cmd_temporal` respond branch now calls with `trusted=True` (session_key
+irrelevant for the local operator). Dead `get_current_session_key` import in
+that branch removed:
+```python
+res = signal_human_input(args.run_id, args.answer, "", trusted=True)
+```
+
+**Gateway path untouched:** `plugins/temporal/__init__.py` `_respond_command`
+still calls `signal_human_input(run_id, answer, get_current_session_key(...))` —
+`trusted` defaults to `False`, session restriction enforced.
+
+### LATENT-CRASH FIX: `HumanInputWorkflow.__init__` missing `_session_key`
+
+**File:** `plugins/temporal/workflows.py`
+
+Added `self._session_key = "default"` in `__init__` alongside `_answer` and
+`_answered`. Without it the `get_session_key` query handler raised `AttributeError`
+if queried before `run()` bound the attribute.
+
+### New tests
+
+**`tests/plugins/temporal/test_human_input_authz.py`** — added:
+- `test_signal_authorized_when_session_matches`: row session "sessA", caller
+  "sessA" → `status == "ok"`. (fake async client, no Temporal server needed)
+- `test_signal_trusted_bypasses_session_check`: row session "sessA", caller
+  "default", `trusted=True` → `status == "ok"`. Proves the fix; without it
+  this was always rejected.
+
+**`tests/plugins/temporal/test_respond_command.py`** — added:
+- `test_cmd_temporal_respond_uses_trusted`: monkeypatches
+  `plugins.temporal.tools.signal_human_input`, builds argparse-like args,
+  calls `worker.cmd_temporal(args)`, asserts `trusted=True` reached the call
+  site and return code is 0.
+
+### Verify outputs
+
+```
+ruff check plugins/temporal/: All checks passed!
+Unit tests (tests/plugins/temporal/): 35/35 passed, 0 failed (1.7s)
+Integration test (test_phase3_integration.py -m integration): 2/2 passed, 0 failed (1.0s)
+```
+
+**Commit:** `d9f6f4a26` — `fix(temporal): trusted local respond bypass + init workflow session_key (Phase 3 final review)`
