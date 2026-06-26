@@ -1202,6 +1202,23 @@ worker process started with `hermes temporal worker`.
 
 **Approval policy:** durable steps run subagents with the configured non-interactive approval policy (`delegation.subagent_auto_approve`, default deny).
 
+**Phase 2 — durable delegation:**
+- `delegate_task(background=true, durable=true)` routes the child subagent as a
+  `BackgroundDelegationWorkflow` (Temporal) instead of the in-process daemon executor,
+  so it survives parent process restart. Requires `temporal.enabled: true`; errors
+  clearly if not — there is **no silent fallback** to the non-durable path.
+- On workflow completion the activity `record_outbox` writes the result atomically to
+  a per-session SQLite outbox at `HERMES_HOME/temporal_outbox.db`.
+- Results re-enter the conversation via the existing `async_delegation` completion-queue
+  drain (`drain_outbox_for_sessions`) consumed by both CLI and gateway — no new
+  delivery rail required. Delivery is idempotent: atomic claim-and-mark prevents
+  double delivery.
+- Status is queryable on demand via `durable_status` (reused from Phase 1).
+- At startup `reconcile_from_temporal()` calls `list_completed_durable_delegations()`
+  and backfills any outbox rows that finished while no Hermes process was alive.
+- The live worker→real-subagent path is validated piecewise (unit tests + time-skipping
+  e2e); full live validation requires a running Temporal server per the runbook.
+
 Design and plan: `docs/temporal/`.
 
 ---
