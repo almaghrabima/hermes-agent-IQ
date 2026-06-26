@@ -89,6 +89,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from toolsets import get_toolset_names
+from hermes_cli.kanban_spawn_provider import resolve_kanban_spawn  # noqa: E402
 
 _log = logging.getLogger(__name__)
 
@@ -6985,7 +6986,7 @@ def _dispatch_once_locked(
         if claimed.workspace_kind == "worktree":
             set_branch_name(conn, claimed.id, resolved_branch_name or (claimed.branch_name or "").strip() or f"wt/{claimed.id}")
         _maybe_emit_scratch_tip(conn, claimed.id, claimed.workspace_kind)
-        _spawn = spawn_fn if spawn_fn is not None else _default_spawn
+        _spawn = spawn_fn if spawn_fn is not None else resolve_kanban_spawn()
         try:
             # Back-compat: older spawn_fn signatures accept only
             # (task, workspace). Test stubs in the suite rely on that.
@@ -6999,7 +7000,9 @@ def _dispatch_once_locked(
                     pid = _spawn(claimed, str(workspace))
             except (TypeError, ValueError):
                 pid = _spawn(claimed, str(workspace))
-            if pid:
+            if getattr(_spawn, "_kanban_run_kind", None) == "temporal":
+                _mark_run_temporal(conn, claimed.id)
+            elif pid:
                 _set_worker_pid(conn, claimed.id, int(pid))
             # NOTE: we intentionally do NOT reset consecutive_failures
             # here. A successful spawn proves the worker can start but
@@ -7083,7 +7086,7 @@ def _dispatch_once_locked(
         # prompt via KANBAN_GUIDANCE, so this is the only extra skill the
         # review agent needs.
         claimed.skills = ["sdlc-review"]
-        _spawn = spawn_fn if spawn_fn is not None else _default_spawn
+        _spawn = spawn_fn if spawn_fn is not None else resolve_kanban_spawn()
         try:
             import inspect
             try:
@@ -7094,7 +7097,9 @@ def _dispatch_once_locked(
                     pid = _spawn(claimed, str(workspace))
             except (TypeError, ValueError):
                 pid = _spawn(claimed, str(workspace))
-            if pid:
+            if getattr(_spawn, "_kanban_run_kind", None) == "temporal":
+                _mark_run_temporal(conn, claimed.id)
+            elif pid:
                 _set_worker_pid(conn, claimed.id, int(pid))
             result.spawned.append((claimed.id, claimed.assignee or "", str(workspace)))
             spawned += 1

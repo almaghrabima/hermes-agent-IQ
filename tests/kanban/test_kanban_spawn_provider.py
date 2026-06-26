@@ -35,3 +35,22 @@ def test_temporal_enabled_but_import_fails_falls_back_to_builtin(monkeypatch):
     cfg = {"kanban": {"spawn_provider": "temporal"}, "temporal": {"enabled": True}}
     fn = resolve_kanban_spawn(cfg)
     assert fn is kanban_db._default_spawn
+
+
+def test_dispatch_marks_run_kind_temporal_when_provider_tagged(kanban_conn, monkeypatch):
+    from hermes_cli import kanban_db
+
+    # A fake temporal spawn: returns no pid, tagged temporal.
+    def fake_spawn(task, workspace, *, board=None):
+        return None
+    fake_spawn._kanban_run_kind = "temporal"
+    monkeypatch.setattr(kanban_db, "resolve_kanban_spawn", lambda cfg=None: fake_spawn)
+
+    # Seed one ready+assigned task. create_task with no parents starts as 'ready'.
+    tid = kanban_db.create_task(kanban_conn, title="x", assignee="default")
+    kanban_db.dispatch_once(kanban_conn)  # spawn_fn=None → resolver path
+
+    row = kanban_conn.execute(
+        "SELECT status, run_kind, worker_pid FROM tasks WHERE id=?", (tid,)).fetchone()
+    assert row["run_kind"] == "temporal"
+    assert row["worker_pid"] is None
