@@ -9885,7 +9885,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             try:
                 from plugins.temporal.delivery import drain_outbox_for_sessions
                 from tools.process_registry import process_registry as _pr
-                _live_keys = [session_key] if session_key else []
+                _live_keys = list(self.session_store._entries.keys())  # noqa: SLF001
+                if session_key and session_key not in _live_keys:
+                    _live_keys.append(session_key)
                 for _evt in drain_outbox_for_sessions(_live_keys):
                     _pr.completion_queue.put(_evt)
             except Exception:
