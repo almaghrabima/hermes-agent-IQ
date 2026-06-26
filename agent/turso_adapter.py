@@ -9,7 +9,39 @@ those gaps and passes everything else straight through.
 """
 from __future__ import annotations
 
+import contextlib
+import sqlite3
 from typing import Any
+
+
+@contextlib.contextmanager
+def _translate():
+    """Translate non-sqlite3 exceptions from libsql into sqlite3 equivalents.
+
+    libsql raises plain ``ValueError`` for all errors (syntax errors, missing
+    tables, constraint violations, lock contention, …).  SessionDB's retry loop
+    catches ``sqlite3.OperationalError`` and its constraint handler catches
+    ``sqlite3.IntegrityError``, so raw ``ValueError`` escapes would bypass both
+    graceful-degradation paths.
+
+    Mapping (message-based, case-insensitive):
+    * "constraint"        → sqlite3.IntegrityError
+    * "locked" / "busy"  → sqlite3.OperationalError
+    * anything else       → sqlite3.OperationalError  (safe default)
+
+    Already-sqlite3 exceptions are re-raised unchanged (no double-wrapping).
+    ``KeyboardInterrupt`` / ``SystemExit`` are never caught.
+    """
+    try:
+        yield
+    except sqlite3.Error:
+        raise  # already the right type — don't double-wrap
+    except Exception as exc:
+        msg = str(exc)
+        lower = msg.lower()
+        if "constraint" in lower:
+            raise sqlite3.IntegrityError(msg) from exc
+        raise sqlite3.OperationalError(msg) from exc
 
 
 class _Row:
@@ -81,14 +113,17 @@ class _TursoCursor:
         return _Row(_colnames(self._raw.description), tuple(row))
 
     def fetchone(self):
-        return self._wrap(self._raw.fetchone())
+        with _translate():
+            return self._wrap(self._raw.fetchone())
 
     def fetchall(self):
-        return [self._wrap(r) for r in self._raw.fetchall()]
+        with _translate():
+            return [self._wrap(r) for r in self._raw.fetchall()]
 
     def fetchmany(self, size=None):
-        rows = self._raw.fetchmany(size) if size is not None else self._raw.fetchmany()
-        return [self._wrap(r) for r in rows]
+        with _translate():
+            rows = self._raw.fetchmany(size) if size is not None else self._raw.fetchmany()
+            return [self._wrap(r) for r in rows]
 
     @property
     def description(self):
@@ -103,8 +138,9 @@ class _TursoCursor:
         return self._raw.rowcount
 
     def __iter__(self):
-        for r in self._raw:
-            yield self._wrap(r)
+        with _translate():
+            for r in self._raw:
+                yield self._wrap(r)
 
     def close(self):
         return self._raw.close()
@@ -132,28 +168,39 @@ class _TursoConnection:
             # libsql auto-opens a transaction; an explicit BEGIN errors. No-op.
             return _TursoCursor(self._raw.cursor(), self.row_factory)
         if _is_commit(sql):
-            self._raw.commit()
+            with _translate():
+                self._raw.commit()
             return _TursoCursor(self._raw.cursor(), self.row_factory)
         if _is_rollback(sql):
-            self._raw.rollback()
+            with _translate():
+                self._raw.rollback()
             return _TursoCursor(self._raw.cursor(), self.row_factory)
-        raw_cur = self._raw.execute(sql, parameters)
+        with _translate():
+            raw_cur = self._raw.execute(sql, parameters)
         return _TursoCursor(raw_cur, self.row_factory)
 
     def executemany(self, sql: str, seq_of_parameters: Any):
-        return _TursoCursor(self._raw.executemany(sql, seq_of_parameters), self.row_factory)
+        with _translate():
+            raw_cur = self._raw.executemany(sql, seq_of_parameters)
+        return _TursoCursor(raw_cur, self.row_factory)
 
     def executescript(self, script: str):
-        return _TursoCursor(self._raw.executescript(script), self.row_factory)
+        # libsql's executescript returns None, so we cannot wrap its return
+        # value in _TursoCursor. Execute the script, then return a fresh cursor.
+        with _translate():
+            self._raw.executescript(script)
+        return self.cursor()
 
     def cursor(self):
         return _TursoCursor(self._raw.cursor(), self.row_factory)
 
     def commit(self):
-        return self._raw.commit()
+        with _translate():
+            return self._raw.commit()
 
     def rollback(self):
-        return self._raw.rollback()
+        with _translate():
+            return self._raw.rollback()
 
     def sync(self):
         return self._raw.sync()

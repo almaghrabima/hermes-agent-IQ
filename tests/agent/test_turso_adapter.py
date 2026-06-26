@@ -190,3 +190,63 @@ def test_execute_write_shape_round_trip(tmp_path):
     assert row["id"] == "sess-1"
     assert row["data"] == "payload"
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 9: exception translation — bad SQL raises sqlite3.OperationalError
+# (Finding 1: libsql raises ValueError; adapter must translate to sqlite3)
+# ---------------------------------------------------------------------------
+
+
+def test_bad_sql_raises_operational_error(tmp_path):
+    """Bad SQL through the adapter must surface as sqlite3.OperationalError.
+
+    libsql raises ValueError for all errors; SessionDB's _execute_write retry
+    loop catches sqlite3.OperationalError, so the translation is load-bearing.
+    """
+    conn = _conn(tmp_path)
+    with pytest.raises(sqlite3.OperationalError):
+        conn.execute("SELECT * FROM")  # syntax error
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 10: exception translation — UNIQUE constraint raises sqlite3.IntegrityError
+# (Finding 1: constraint violations must map to IntegrityError)
+# ---------------------------------------------------------------------------
+
+
+def test_unique_constraint_raises_integrity_error(tmp_path):
+    """Duplicate primary key must surface as sqlite3.IntegrityError.
+
+    libsql raises ValueError("UNIQUE constraint failed: …"); the adapter must
+    detect the word 'constraint' in the message and raise sqlite3.IntegrityError
+    so SessionDB's constraint-handling graceful-degradation path fires.
+    """
+    conn = _conn(tmp_path)
+    conn.execute("CREATE TABLE uk (id INTEGER PRIMARY KEY)")
+    conn.execute("INSERT INTO uk VALUES (?)", (1,))
+    conn.commit()
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("INSERT INTO uk VALUES (?)", (1,))  # duplicate
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 11: executescript returns a usable cursor (Finding 2)
+# ---------------------------------------------------------------------------
+
+
+def test_executescript_returns_usable_cursor(tmp_path):
+    """executescript must return a cursor on which fetchone()/iteration are safe.
+
+    libsql's executescript() returns None; wrapping None in _TursoCursor then
+    calling .fetchone() raises AttributeError. The adapter must return a fresh,
+    usable cursor instead.
+    """
+    conn = _conn(tmp_path)
+    cur = conn.executescript("CREATE TABLE a(x); CREATE TABLE b(y);")
+    # Must not raise AttributeError
+    result = cur.fetchone()
+    assert result is None  # empty result set is fine; just must not crash
+    conn.close()
