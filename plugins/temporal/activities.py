@@ -88,6 +88,39 @@ def _make_run_kanban_worker(heartbeat=None, sleep=None):
     return _run
 
 
+def _run_rlm_blocking(payload: dict) -> dict:
+    """Run rlm via the existing sync tool path on the worker host and normalize
+    the result. Bootstraps tool discovery (the worker already does, but this keeps
+    the core self-contained for direct unit tests). NO Temporal imports."""
+    import json as _json
+    from tools.registry import discover_builtin_tools
+    discover_builtin_tools()
+    from tools.rlm_tool import rlm_tool
+    args = payload.get("rlm_args") or {}
+    raw = rlm_tool(
+        query=args.get("query", ""),
+        context=args.get("context"),
+        input_path=args.get("input_path"),
+        primary_agent=args.get("primary_agent"),
+        sub_agent=args.get("sub_agent"),
+        max_global_calls=args.get("max_global_calls"),
+        task_id=payload.get("run_id", "durable-rlm"),
+    )
+    try:
+        parsed = _json.loads(raw)
+    except Exception:  # noqa: BLE001 — non-JSON is a hard failure
+        return {"ok": False, "summary": None, "error": f"rlm produced non-JSON: {raw[:500]}",
+                "usage": None, "log_path": None}
+    ok = parsed.get("status") == "success"
+    return {
+        "ok": ok,
+        "summary": parsed.get("result") if ok else None,
+        "error": None if ok else parsed.get("error", "rlm failed"),
+        "usage": parsed.get("usage"),
+        "log_path": parsed.get("log_path"),
+    }
+
+
 # Temporal activity wrappers — imported lazily so non-temporal runs never import temporalio.
 def _make_activities():
     from temporalio import activity  # type: ignore
@@ -148,7 +181,11 @@ def _make_activities():
                 except Exception: pass  # noqa: BLE001
         return await asyncio.to_thread(_reap)
 
-    return [run_step_activity, record_outbox_activity, fire_cron_job_activity, run_kanban_worker_activity, reap_failed_kanban_worker_activity]
+    @activity.defn(name="run_rlm_durable")
+    async def run_rlm_durable_activity(payload: dict) -> dict:
+        return await asyncio.to_thread(_run_rlm_blocking, payload)
+
+    return [run_step_activity, record_outbox_activity, fire_cron_job_activity, run_kanban_worker_activity, reap_failed_kanban_worker_activity, run_rlm_durable_activity]
 
 
 def _make_activity():

@@ -23,21 +23,27 @@ def test_connect_forwards_sqlite_kwargs(tmp_path):
     conn.close()
 
 
-def test_prefer_libsql_opens_local_vector_capable_connection(tmp_path):
-    """sync=None + prefer_libsql=True -> libSQL conn that supports native vectors."""
+def test_connect_prefer_libsql_local_has_native_vectors(tmp_path):
+    """prefer_libsql opens a local libSQL connection (no sync) so native vector
+    SQL (F32_BLOB / vector32 / vector_distance_cos) works — stdlib sqlite3 can't."""
+    import pytest
+    pytest.importorskip("libsql")
     from agent.db_backend import connect
-    conn = connect(str(tmp_path / "vec.db"), label="vec.db", sync=None, prefer_libsql=True)
-    conn.execute("CREATE TABLE t(id INTEGER PRIMARY KEY, emb F32_BLOB(3))")
-    conn.execute("INSERT INTO t(id, emb) VALUES (1, vector32('[1,2,3]'))")
-    row = conn.execute(
-        "SELECT vector_distance_cos(emb, vector32('[1,2,3]')) FROM t"
-    ).fetchone()
-    assert abs(float(row[0])) < 1e-6   # identical vectors -> ~0 cosine distance
+
+    conn = connect(str(tmp_path / "v.db"), label="memory.db", sync=None, prefer_libsql=True)
+    conn.execute("CREATE TABLE m (id TEXT PRIMARY KEY, e F32_BLOB(3))")
+    conn.execute("INSERT INTO m (id, e) VALUES ('a', vector32('[1.0,0.0,0.0]'))")
+    conn.execute("INSERT INTO m (id, e) VALUES ('b', vector32('[0.0,0.0,1.0]'))")
+    ids = [r[0] for r in conn.execute(
+        "SELECT id FROM m ORDER BY vector_distance_cos(e, vector32('[0.9,0.1,0.0]')) ASC"
+    ).fetchall()]
+    assert ids[0] == "a"
+    conn.close()
 
 
-def test_default_connect_still_returns_stdlib_sqlite(tmp_path):
-    """No regression: sync=None without prefer_libsql is unchanged stdlib sqlite3."""
+def test_connect_sync_none_default_is_still_stdlib_sqlite(tmp_path):
     import sqlite3
     from agent.db_backend import connect
-    conn = connect(str(tmp_path / "plain.db"), label="plain.db")
+    conn = connect(str(tmp_path / "s.db"), label="x", sync=None)  # no prefer_libsql
     assert isinstance(conn, sqlite3.Connection)
+    conn.close()

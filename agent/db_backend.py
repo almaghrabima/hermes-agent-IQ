@@ -103,10 +103,10 @@ def connect(
     """Open a database connection.
 
     ``sync=None`` (default) → stdlib ``sqlite3.connect`` (unchanged behaviour),
-    unless ``prefer_libsql=True``, which opens a *local* (un-synced) libSQL
-    connection. ``sync`` set → a libSQL embedded replica.
+    unless ``prefer_libsql=True``, in which case a *local* libSQL connection is
+    opened (no sync). ``sync`` set → a libSQL embedded replica.
 
-    ``prefer_libsql`` exists for callers needing libSQL-only SQL even when not
+    ``prefer_libsql`` exists for callers that need libSQL-only SQL even when not
     syncing — e.g. native vector search (``F32_BLOB`` / ``vector_distance_cos``),
     which stdlib sqlite3 does not provide. The connection is wrapped in the same
     sqlite3-compat adapter as the synced path.
@@ -122,9 +122,10 @@ def _connect_local_libsql(db_path, **sqlite_kwargs):
     """Open a local (un-synced) libSQL connection wrapped in the adapter.
 
     Same engine as the synced path — so native vector functions are available —
-    but with no ``sync_url``/``auth_token`` (purely local file). sqlite-only
-    kwargs that libsql does not accept are dropped; the adapter emulates them.
+    but with no ``sync_url``/``auth_token`` (purely local file).
     """
+    from pathlib import Path
+
     from tools.lazy_deps import ensure
     ensure("database.turso")
     import libsql

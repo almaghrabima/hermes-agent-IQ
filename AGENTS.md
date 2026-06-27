@@ -1276,6 +1276,21 @@ Design and plan: `docs/temporal/`.
   same card (at-least-once execution) — the SQLite claim CAS still gates the initial
   claim, but a card's worker can run twice in this stall case.
 
+**Phase 5 — Durable background rlm (`rlm(durable=true)`):**
+- `rlm(durable=true)` (default off) runs the rlm invocation as a crash-durable
+  `RlmRunWorkflow` on the `hermes temporal worker` and returns a `run_id`
+  immediately; the result re-enters the originating session via the same durable
+  outbox/completion rail as durable delegation (pollable with `durable_status`,
+  backfilled by startup reconcile).
+- Requires `temporal.enabled: true` — no silent fallback; the tool raises an error
+  if Temporal is unavailable when `durable=true` is requested.
+- On a host/worker crash the whole rlm run is re-run from scratch up to
+  `rlm.durable_max_attempts` (default 2); kernel state is not checkpointed between
+  attempts, and rlm's own budgets bound each attempt.
+- **Limitation:** the worker runs rlm with the local backend on the worker host
+  (needs Deno + fast-rlm there); durable mode over remote backends and mid-run
+  resume are non-goals.
+
 ---
 
 ## Important Policies

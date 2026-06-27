@@ -1,0 +1,5 @@
+name: turso_memory
+version: 0.1.0
+description: "Turso/libSQL long-term memory — device-synced store with local embeddings and hybrid (FTS5 + vector) semantic recall."
+hooks:
+  - on_memory_write

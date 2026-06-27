@@ -230,6 +230,51 @@ def handle_durable_ask(args: dict, **kw) -> str:
     return json.dumps(out)
 
 
+def dispatch_durable_rlm(*, rlm_args, session_key, max_attempts, timeout_seconds) -> dict:
+    """Start an RlmRunWorkflow and return immediately with a run_id."""
+    s = resolve_temporal_config(load_config())
+    run_id = f"durable-rlm-{uuid.uuid4().hex[:12]}"
+
+    async def _go():
+        client = await connect(s)
+        handle = await client.start_workflow(
+            "RlmRunWorkflow",
+            {"rlm_args": rlm_args, "session_key": session_key or "default",
+             "run_id": run_id, "max_attempts": int(max_attempts),
+             "timeout_seconds": int(timeout_seconds)},
+            id=run_id, task_queue=s.task_queue,
+        )
+        return handle.id
+
+    rid = asyncio.run(_go())
+    return {"status": "dispatched", "run_id": rid}
+
+
+def list_completed_durable_rlm() -> list[dict]:
+    """Completed RlmRunWorkflows not yet in the outbox (for reconcile). Mirrors
+    list_completed_durable_delegations; raises if temporal is down."""
+
+    async def _go():
+        s = resolve_temporal_config(load_config())
+        client = await connect(s)
+        out = []
+        query = 'WorkflowType="RlmRunWorkflow" AND ExecutionStatus="Completed"'
+        async for wf in client.list_workflows(query=query):
+            if _outbox.has_run(wf.id):
+                continue
+            handle = client.get_workflow_handle(wf.id)
+            res = await handle.result()
+            out.append({
+                "run_id": res.get("run_id", wf.id),
+                "session_key": res.get("session_key", "default"),
+                "status": res.get("status", "completed"),
+                "block": res.get("block", {}),
+            })
+        return out
+
+    return asyncio.run(_go())
+
+
 def signal_human_input(run_id: str, answer: str, session_key: str, *, trusted: bool = False) -> dict:
     row = _outbox.get_row(f"{run_id}:waiting")
     if row is None:

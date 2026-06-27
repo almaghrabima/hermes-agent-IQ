@@ -54,4 +54,12 @@ def reconcile_from_temporal() -> int:
                 inserted += 1
     except Exception as exc:  # best-effort
         logger.warning("temporal reconcile skipped: %s", exc)
+    try:
+        from plugins.temporal.tools import list_completed_durable_rlm
+        for item in list_completed_durable_rlm():
+            if not outbox.has_run(item["run_id"]):
+                outbox.record_completion(item["run_id"], item["session_key"], item["status"], item["block"])
+                inserted += 1
+    except Exception as exc:  # best-effort
+        logger.warning("temporal rlm reconcile skipped: %s", exc)
     return inserted
