@@ -26,6 +26,7 @@ _DEVICE_SHIFT = _SEQ_BITS          # 6
 _TS_SHIFT = _SEQ_BITS + _DEVICE_BITS  # 22
 _MAX_SEQ = (1 << _SEQ_BITS) - 1    # 63
 _MAX_DEVICE = (1 << _DEVICE_BITS) - 1  # 65535
+_EPOCH_MS = 1_577_836_800_000  # 2020-01-01T00:00:00Z in ms; Snowflake ts is measured from here
 
 _lock = threading.RLock()
 _cache: dict | None = None
@@ -104,7 +105,10 @@ class SnowflakeGenerator:
             else:
                 self._seq = 0
             self._last_ms = ms
-            return (ms << _TS_SHIFT) | (self._device << _DEVICE_SHIFT) | self._seq
+            ts = ms - _EPOCH_MS
+            if ts < 0:
+                ts = 0
+            return (ts << _TS_SHIFT) | (self._device << _DEVICE_SHIFT) | self._seq
 
 
 def next_id() -> int:

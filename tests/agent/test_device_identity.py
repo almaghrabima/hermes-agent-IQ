@@ -71,3 +71,12 @@ def test_seq_exhaustion_rolls_to_next_ms(home):
     ids = [g.next_id(now_ms=1_700_000_000_000) for _ in range(65)]
     assert len(set(ids)) == 65
     assert ids == sorted(ids)
+
+
+def test_snowflake_fits_63_bits_in_year_2080(home):
+    from agent.device_identity import SnowflakeGenerator
+    g = SnowflakeGenerator(device_number=9)
+    # ~2080-01-01 in ms — would overflow 2^63 WITHOUT the custom epoch
+    future_ms = 3_471_292_800_000
+    i = g.next_id(now_ms=future_ms)
+    assert 0 < i < (1 << 63)

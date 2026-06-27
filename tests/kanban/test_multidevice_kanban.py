@@ -1,5 +1,4 @@
 """Multi-device kanban tests: Snowflake ids + origin_device on child tables."""
-import pytest
 import agent.device_identity as di
 
 

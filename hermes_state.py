@@ -2641,6 +2641,7 @@ class SessionDB:
         now_ts = time.time()
         inserted = 0
         tool_calls_total = 0
+        from agent.device_identity import next_id as _next_id, get_device_id as _dev
         for msg in messages:
             role = msg.get("role", "unknown")
             tool_calls = msg.get("tool_calls")
@@ -2677,7 +2678,6 @@ class SessionDB:
                 msg.get("platform_message_id") or msg.get("message_id")
             )
 
-            from agent.device_identity import next_id as _next_id, get_device_id as _dev
             conn.execute(
                 """INSERT INTO messages (id, session_id, role, content, tool_call_id,
                    tool_calls, tool_name, timestamp, token_count, finish_reason,
