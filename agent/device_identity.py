@@ -27,7 +27,7 @@ _TS_SHIFT = _SEQ_BITS + _DEVICE_BITS  # 22
 _MAX_SEQ = (1 << _SEQ_BITS) - 1    # 63
 _MAX_DEVICE = (1 << _DEVICE_BITS) - 1  # 65535
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 _cache: dict | None = None
 _process_gen: "SnowflakeGenerator | None" = None
 
@@ -38,30 +38,32 @@ def _device_file():
 
 def _load_or_create() -> dict:
     global _cache
-    if _cache is not None:
-        return _cache
-    path = _device_file()
-    data = None
-    if path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if not (isinstance(data, dict) and isinstance(data.get("device_id"), str)
-                    and isinstance(data.get("device_number"), int)
-                    and 0 <= data["device_number"] <= _MAX_DEVICE):
+    with _lock:
+        if _cache is not None:
+            return _cache
+        path = _device_file()
+        data = None
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                dn = data.get("device_number") if isinstance(data, dict) else None
+                if not (isinstance(data, dict) and isinstance(data.get("device_id"), str)
+                        and isinstance(dn, int) and not isinstance(dn, bool)
+                        and 0 <= dn <= _MAX_DEVICE):
+                    data = None
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                logger.warning("device.json unreadable (%s); regenerating", exc)
                 data = None
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            logger.warning("device.json unreadable (%s); regenerating", exc)
-            data = None
-    if data is None:
-        data = {"device_id": uuid.uuid4().hex,
-                "device_number": secrets.randbelow(_MAX_DEVICE + 1)}
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(data), encoding="utf-8")
-        except OSError as exc:
-            logger.warning("could not persist device.json (%s); using ephemeral id", exc)
-    _cache = data
-    return data
+        if data is None:
+            data = {"device_id": uuid.uuid4().hex,
+                    "device_number": secrets.randbelow(_MAX_DEVICE + 1)}
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(data), encoding="utf-8")
+            except OSError as exc:
+                logger.warning("could not persist device.json (%s); using ephemeral id", exc)
+        _cache = data
+        return data
 
 
 def _reset_cache() -> None:
@@ -111,4 +113,5 @@ def next_id() -> int:
     with _lock:
         if _process_gen is None:
             _process_gen = SnowflakeGenerator(get_device_number())
-        return _process_gen.next_id()
+        gen = _process_gen
+    return gen.next_id()

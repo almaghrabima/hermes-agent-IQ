@@ -22,9 +22,16 @@ def test_device_file_created_and_stable(home):
     assert di.get_device_number() == n
 
 
-def test_corrupt_device_file_regenerates(home):
+@pytest.mark.parametrize("content", [
+    "{not json",
+    '{"device_id": 123, "device_number": 5}',          # device_id wrong type (int)
+    '{"device_id": "abc", "device_number": 99999}',    # device_number out of range
+    '{"device_id": "abc", "device_number": true}',     # device_number is bool
+])
+def test_corrupt_device_file_regenerates(home, content):
     from agent import device_identity as di
-    (home / "device.json").write_text("{not json", encoding="utf-8")
+    di._reset_cache()
+    (home / "device.json").write_text(content, encoding="utf-8")
     di._reset_cache()
     # Must not raise; regenerates a valid identity
     assert isinstance(di.get_device_id(), str)
