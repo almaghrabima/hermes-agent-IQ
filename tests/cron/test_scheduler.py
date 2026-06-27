@@ -1458,7 +1458,7 @@ class TestRunJobSessionPersistence:
             "last_status": None,
         }
 
-        fake_db = MagicMock()
+        MagicMock()
 
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler.get_due_jobs", return_value=[job]), \

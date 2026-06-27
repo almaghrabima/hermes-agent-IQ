@@ -24,7 +24,7 @@ class _Stub(CLICommandsMixin):
 
 def _fake_editor(body: str, mode: str = "append") -> str:
     """Write a tiny shell 'editor' that mutates the file it is handed."""
-    f = tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False)
+    f = tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".sh", delete=False)
     if mode == "append":
         f.write("#!/usr/bin/env bash\n")
         f.write(f"cat >> \"$1\" <<'EOF'\n{body}\nEOF\n")

@@ -104,7 +104,7 @@ def _import_elevenlabs():
     error-handling paths keep working.
     """
     try:
-        from tools.lazy_deps import FeatureUnavailable, ensure
+        from tools.lazy_deps import ensure
         ensure("tts.elevenlabs", prompt=False)
     except ImportError:
         # lazy_deps module itself missing — fall through to the raw import

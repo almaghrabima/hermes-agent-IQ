@@ -5,7 +5,12 @@ import shlex as _shlex
 from hermes_cli.config import load_config
 from plugins.temporal.tconfig import resolve_temporal_config
 from plugins.temporal import tools as _tools
-from plugins.temporal.worker import setup_worker_parser, cmd_temporal_worker, setup_respond_parser, cmd_temporal
+from plugins.temporal.worker import (
+    cmd_temporal,
+    cmd_temporal_worker as cmd_temporal_worker,
+    setup_respond_parser,
+    setup_worker_parser,
+)
 
 
 def _respond_command(raw_args: str) -> str:

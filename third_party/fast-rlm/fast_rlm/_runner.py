@@ -105,7 +105,7 @@ class RLMConfig:
         try:
             engine_dir = _find_engine_dir()
             config_path = engine_dir / "rlm_config.yaml"
-            with open(config_path) as f:
+            with open(config_path, encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
             return cls(
                 **{k: v for k, v in data.items() if k in cls.__dataclass_fields__}
@@ -195,15 +195,15 @@ def _load_input_file(path: str):
     """
     ext = os.path.splitext(path)[1].lower().lstrip(".")
     if ext == "json":
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f), ext
     if ext in ("jsonl", "ndjson"):
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()], ext
     if ext in ("yaml", "yml"):
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f), ext
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return f.read(), ext
 
 
@@ -309,7 +309,7 @@ def run(
     default_config_path = engine_dir / "rlm_config.yaml"
     _defaults = {}
     if default_config_path.exists():
-        with open(default_config_path) as f:
+        with open(default_config_path, encoding="utf-8") as f:
             _defaults = yaml.safe_load(f) or {}
     merged_config = {**_defaults, **cfg_dict}
     if instruction is not None:
@@ -378,7 +378,7 @@ def run(
         ):
             raise TypeError("env_variables must be a dict[str, str]")
         env_tmpfile = tempfile.mktemp(suffix=".env.json")
-        with open(env_tmpfile, "w") as f:
+        with open(env_tmpfile, "w", encoding="utf-8") as f:
             json.dump(env_variables, f)
         cmd += ["--env-file", env_tmpfile]
 
@@ -386,7 +386,7 @@ def run(
     if tools:
         tool_sources = [_extract_tool_source(t) for t in tools]
         tools_tmpfile = tempfile.mktemp(suffix=".tools.json")
-        with open(tools_tmpfile, "w") as f:
+        with open(tools_tmpfile, "w", encoding="utf-8") as f:
             json.dump(tool_sources, f)
         cmd += ["--tools-file", tools_tmpfile]
 
@@ -394,7 +394,7 @@ def run(
     if output_schema is not None:
         schema_dict = _to_json_schema(output_schema)
         schema_tmpfile = tempfile.mktemp(suffix=".schema.json")
-        with open(schema_tmpfile, "w") as f:
+        with open(schema_tmpfile, "w", encoding="utf-8") as f:
             json.dump(schema_dict, f)
         cmd += ["--output-schema-file", schema_tmpfile]
 
@@ -408,7 +408,7 @@ def run(
         if any("url" not in cfg for cfg in mcp_servers.values()):
             cmd.insert(cmd.index("src/subagents.ts"), "--allow-run")
         mcp_tmpfile = tempfile.mktemp(suffix=".mcp.json")
-        with open(mcp_tmpfile, "w") as f:
+        with open(mcp_tmpfile, "w", encoding="utf-8") as f:
             json.dump(mcp_servers, f)
         cmd += ["--mcp-file", mcp_tmpfile]
 
@@ -419,14 +419,14 @@ def run(
         ):
             raise TypeError("llm_kwargs must be a dict with string keys")
         llm_kwargs_tmpfile = tempfile.mktemp(suffix=".llm_kwargs.json")
-        with open(llm_kwargs_tmpfile, "w") as f:
+        with open(llm_kwargs_tmpfile, "w", encoding="utf-8") as f:
             json.dump(llm_kwargs, f)
         cmd += ["--llm-kwargs-file", llm_kwargs_tmpfile]
 
     # Write the merged+validated config (always present — primary_agent is required)
     # to a temp file and hand it to the engine.
     config_tmpfile = tempfile.mktemp(suffix=".yaml")
-    with open(config_tmpfile, "w") as f:
+    with open(config_tmpfile, "w", encoding="utf-8") as f:
         yaml.dump(merged_config, f)
     cmd += ["--config", config_tmpfile]
 
@@ -454,7 +454,7 @@ def run(
                 f"fast-rlm engine failed (exit code {result.returncode}).\n{stderr}"
             )
 
-        with open(output_file) as f:
+        with open(output_file, encoding="utf-8") as f:
             data = json.load(f)
     finally:
         if os.path.exists(output_file):

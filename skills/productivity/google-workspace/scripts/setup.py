@@ -71,7 +71,7 @@ def _normalize_authorized_user_payload(payload: dict) -> dict:
 
 def _load_token_payload(path: Path = TOKEN_PATH) -> dict:
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
 

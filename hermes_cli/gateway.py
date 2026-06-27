@@ -378,7 +378,6 @@ def _scan_gateway_pids(
             # PowerShell's Get-CimInstance.  Any OSError here (FileNotFoundError
             # on missing wmic) trips the fallback.
             wmic_path = shutil.which("wmic")
-            used_fallback = False
             result = None
             if wmic_path is not None:
                 try:
@@ -423,7 +422,6 @@ def _scan_gateway_pids(
                     )
                 except (OSError, subprocess.TimeoutExpired):
                     return []
-                used_fallback = True
             if result.returncode != 0 or result.stdout is None:
                 return []
             current_cmd = ""
@@ -3040,7 +3038,7 @@ def systemd_start(system: bool = False):
     system = _select_systemd_scope(system)
     if system:
         _require_root_for_system_service("start")
-    else:
+    elif is_linux():
         # Fail fast with actionable guidance if the user D-Bus session is not
         # reachable (common on fresh RHEL/Debian SSH sessions without linger).
         # Raises UserSystemdUnavailableError with a remediation message.
@@ -3083,7 +3081,7 @@ def systemd_restart(system: bool = False):
     system = _select_systemd_scope(system)
     if system:
         _require_root_for_system_service("restart")
-    else:
+    elif is_linux():
         _preflight_user_systemd()
     _require_service_installed("restart", system=system)
     refresh_systemd_unit_if_needed(system=system)

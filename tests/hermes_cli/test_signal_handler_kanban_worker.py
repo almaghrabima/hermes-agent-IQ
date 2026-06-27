@@ -95,13 +95,29 @@ def _is_alive_like_dispatcher(pid: int) -> bool:
         return True
     if sys.platform == "linux":
         try:
-            with open(f"/proc/{pid}/status") as f:
+            with open(f"/proc/{pid}/status", encoding="utf-8") as f:
                 for line in f:
                     if line.startswith("State:"):
                         if "Z" in line.split(":", 1)[1]:
                             return False
                         break
         except (FileNotFoundError, PermissionError, OSError):
+            pass
+    elif sys.platform == "darwin":
+        try:
+            proc = subprocess.run(
+                ["ps", "-o", "stat=", "-p", str(pid)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=1,
+                check=False,
+            )
+            if proc.returncode != 0:
+                return False
+            if "Z" in (proc.stdout or "").strip():
+                return False
+        except (OSError, subprocess.SubprocessError, TimeoutError):
             pass
     return True
 
@@ -154,6 +170,10 @@ def test_sigterm_with_kanban_task_env_terminates_quickly():
         # is immediate. Give generous headroom for slow CI runners.
         deadline = t0 + 2.0
         while time.time() < deadline:
+            if proc.poll() is not None:
+                elapsed = time.time() - t0
+                assert elapsed < 2.0
+                return
             if not _is_alive_like_dispatcher(proc.pid):
                 elapsed = time.time() - t0
                 assert elapsed < 2.0

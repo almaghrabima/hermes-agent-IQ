@@ -20,7 +20,7 @@ def main():
 
     agents = {}  # run_id -> {depth, start, end, parent_run_id}
 
-    with open(log_path) as f:
+    with open(log_path, encoding="utf-8") as f:
         for line in f:
             entry = json.loads(line)
             rid = entry.get("run_id")

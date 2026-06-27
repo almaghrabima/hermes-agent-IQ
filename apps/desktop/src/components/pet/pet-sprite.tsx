@@ -9,6 +9,7 @@ const DEFAULT_LOOP_MS = 1100
 // Mirrors agent.pet.constants.DEFAULT_SCALE — fallback only; the gateway sends
 // the configured scale.
 const DEFAULT_SCALE = 0.33
+
 // Mirrors agent.pet.constants.CODEX_STATE_ROWS (Petdex current taxonomy).
 const DEFAULT_STATE_ROWS = [
   'idle',
@@ -104,10 +105,12 @@ function PetSpriteImpl({ info, zoom = 1 }: PetSpriteProps) {
     const rowIndexForState = (s: PetState): number => {
       for (const key of STATE_ALIASES[s] ?? [s]) {
         const idx = rows.indexOf(key)
+
         if (idx >= 0) {
           return idx
         }
       }
+
       return 0
     }
 
@@ -116,6 +119,7 @@ function PetSpriteImpl({ info, zoom = 1 }: PetSpriteProps) {
     // than flashing blank padding.
     const resolve = (s: PetState): { row: number; count: number } => {
       const real = framesByState?.[s] ?? frames
+
       if (real > 0) {
         return { row: rowIndexForState(s), count: real }
       }

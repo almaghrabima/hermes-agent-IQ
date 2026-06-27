@@ -110,7 +110,7 @@ class TestGenerateBash:
     def test_valid_bash_syntax(self):
         """Script must pass `bash -n` syntax check."""
         out = generate_bash(_make_parser())
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".bash", delete=False) as f:
+        with tempfile.NamedTemporaryFile(encoding="utf-8", mode="w", suffix=".bash", delete=False) as f:
             f.write(out)
             path = f.name
         try:
@@ -157,7 +157,7 @@ class TestGenerateZsh:
         if not shutil.which("zsh"):
             pytest.skip("zsh not installed")
         out = generate_zsh(_make_parser())
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".zsh", delete=False) as f:
+        with tempfile.NamedTemporaryFile(encoding="utf-8", mode="w", suffix=".zsh", delete=False) as f:
             f.write(out)
             path = f.name
         try:
@@ -170,7 +170,7 @@ class TestGenerateZsh:
         if not shutil.which("zsh"):
             pytest.skip("zsh not installed")
         out = generate_zsh(_make_parser())
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".zsh", delete=False) as f:
+        with tempfile.NamedTemporaryFile(encoding="utf-8", mode="w", suffix=".zsh", delete=False) as f:
             f.write(out)
             path = f.name
         try:
@@ -212,7 +212,7 @@ class TestGenerateFish:
         if not shutil.which("fish"):
             pytest.skip("fish not installed")
         out = generate_fish(_make_parser())
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".fish", delete=False) as f:
+        with tempfile.NamedTemporaryFile(encoding="utf-8", mode="w", suffix=".fish", delete=False) as f:
             f.write(out)
             path = f.name
         try:

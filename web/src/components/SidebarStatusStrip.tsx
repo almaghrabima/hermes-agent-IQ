@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- Status helpers are intentionally colocated with their renderer. */
 import { Link } from "react-router-dom";
 import type { StatusResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";

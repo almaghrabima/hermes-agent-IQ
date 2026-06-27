@@ -11,9 +11,7 @@ Required assertions (brief §Task-4):
   4. load_cron_scheduler("temporal") returns the provider
   5. resolve_cron_scheduler() falls back to "builtin" when temporal disabled
 """
-import threading
 
-import pytest
 
 from plugins.cron_providers.temporal import TemporalCronScheduler
 from plugins.cron_providers import load_cron_scheduler

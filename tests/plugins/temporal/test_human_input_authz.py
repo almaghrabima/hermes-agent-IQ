@@ -1,5 +1,4 @@
 # tests/plugins/temporal/test_human_input_authz.py
-import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
 from plugins.temporal import tools, outbox

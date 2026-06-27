@@ -332,7 +332,6 @@ def test_wire_format_is_form_urlencoded_with_all_pkce_fields(monkeypatch):
                       "id_token": "", "expires_in": 60, "token_type": "Bearer"},
             )
 
-    real_post = httpx.post
 
     def _post(*args, **kwargs):
         with httpx.Client(transport=_Transport()) as c:

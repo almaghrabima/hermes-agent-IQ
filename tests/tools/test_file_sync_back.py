@@ -386,7 +386,6 @@ class TestSyncBackSIGINT:
         download_fn = _make_download_fn({})
         mgr = _make_manager(tmp_path, bulk_download_fn=download_fn)
 
-        handlers_seen = []
         original_getsignal = signal.getsignal
 
         with patch("tools.environments.file_sync.signal.getsignal",

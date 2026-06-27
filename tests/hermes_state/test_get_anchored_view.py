@@ -117,19 +117,26 @@ class TestEmptyContentFilter:
     def test_empty_content_messages_excluded_from_bookends(self, db):
         db.create_session("s1", source="cli")
         # Real prose opener
-        opener = db.append_message("s1", role="user", content="Let's start the work")
+        db.append_message("s1", role="user", content="Let's start the work")
         # Empty content assistant turn (tool-call-only — common in agent loops)
         db.append_message("s1", role="assistant", content="", tool_calls=[{"id": "t1", "function": {"name": "x", "arguments": "{}"}}])
         # More prose
+        prose_ids = []
         for i in range(20):
-            db.append_message("s1", role="user" if i % 2 == 0 else "assistant", content=f"prose {i}")
+            prose_ids.append(
+                db.append_message(
+                    "s1",
+                    role="user" if i % 2 == 0 else "assistant",
+                    content=f"prose {i}",
+                )
+            )
         # Another empty assistant near the end
         db.append_message("s1", role="assistant", content="", tool_calls=[{"id": "t2", "function": {"name": "y", "arguments": "{}"}}])
         # Prose closer
-        closer = db.append_message("s1", role="assistant", content="Final decision: ship it.")
+        db.append_message("s1", role="assistant", content="Final decision: ship it.")
 
         # Anchor mid-session
-        view = db.get_anchored_view("s1", opener + 15, window=2, bookend=3)
+        view = db.get_anchored_view("s1", prose_ids[14], window=2, bookend=3)
         # Bookend_start should not contain the empty-content tool-call turn
         for m in view["bookend_start"]:
             assert m.get("content"), "bookend_start should skip empty-content messages"

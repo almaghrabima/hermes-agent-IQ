@@ -16,9 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch, call
 
 import pytest
 
-from gateway.config import Platform, PlatformConfig
+from gateway.config import PlatformConfig
 from gateway.platforms.base import (
-    MessageEvent,
     MessageType,
     SUPPORTED_VIDEO_TYPES,
     is_host_excluded_by_no_proxy,
@@ -963,7 +962,7 @@ class TestSendDocument:
         )
 
         # Should fall back to base class (text message)
-        result = await adapter.send_document(
+        await adapter.send_document(
             chat_id="C123",
             file_path=str(test_file),
         )
@@ -1106,7 +1105,7 @@ class TestSendVideo:
         )
 
         # Should fall back to base class (text message)
-        result = await adapter.send_video(
+        await adapter.send_video(
             chat_id="C123",
             video_path=str(video),
         )

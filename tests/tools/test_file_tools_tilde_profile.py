@@ -15,10 +15,8 @@ See: https://github.com/NousResearch/hermes-agent/issues/48552
 """
 
 import os
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 import tools.file_tools as ft
 

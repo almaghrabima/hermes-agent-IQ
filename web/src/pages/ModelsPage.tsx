@@ -936,6 +936,8 @@ export default function ModelsPage() {
   }, [days, loading, load, setAfterTitle, setEnd, t.common.refresh]);
 
   useEffect(() => {
+    // Fetching model state is the purpose of this mount/update effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 

@@ -144,6 +144,8 @@ export default function LogsPage() {
   ]);
 
   useEffect(() => {
+    // Fetching logs is the purpose of this mount/update effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchLogs();
   }, [fetchLogs]);
 

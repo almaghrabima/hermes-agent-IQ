@@ -1627,7 +1627,7 @@ def specify_task_endpoint(
     with kanban_db.scoped_current_board(board or kanban_db.DEFAULT_BOARD):
         # Import lazily so a missing auxiliary client at import time
         # doesn't break plugin load.
-        from hermes_cli import kanban_specify  # noqa: WPS433 (intentional)
+        from hermes_cli import kanban_specify
 
         outcome = kanban_specify.specify_task(
             task_id,
@@ -2188,7 +2188,7 @@ def auto_describe_profile(profile_name: str, payload: DescribeAutoBody):
     config and retry without a page reload.
     """
     try:
-        from hermes_cli import profile_describer  # noqa: WPS433 (intentional)
+        from hermes_cli import profile_describer
         outcome = profile_describer.describe_profile(
             profile_name,
             overwrite=bool(payload.overwrite),
@@ -2234,7 +2234,7 @@ def decompose_task_endpoint(
     # HERMES_KANBAN_BOARD env var would let concurrent requests for
     # different boards race and cross-write (issue #38323).
     with kanban_db.scoped_current_board(board or kanban_db.DEFAULT_BOARD):
-        from hermes_cli import kanban_decompose  # noqa: WPS433 (intentional)
+        from hermes_cli import kanban_decompose
         outcome = kanban_decompose.decompose_task(
             task_id,
             author=(payload.author or None),

@@ -116,7 +116,7 @@ class TestSSHBulkUpload:
                 # File must exist (either as symlink or copy)
                 assert os.path.exists(expected), f"Expected staged file at {expected}"
                 # Content must match the source
-                with open(expected, "r") as fh:
+                with open(expected, "r", encoding="utf-8") as fh:
                     assert fh.read() == "content a"
 
             mock = MagicMock()
@@ -476,7 +476,7 @@ class TestSSHBulkUploadWiring:
 
         monkeypatch.setattr(ssh_env, "FileSyncManager", FakeSyncManager)
 
-        env = SSHEnvironment(host="h", user="u")
+        SSHEnvironment(host="h", user="u")
 
         assert "bulk_upload_fn" in captured_kwargs
         assert captured_kwargs["bulk_upload_fn"] is not None

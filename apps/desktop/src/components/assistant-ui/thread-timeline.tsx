@@ -16,6 +16,7 @@ import {
 const MIN_ENTRIES = 4
 const VIEWPORT = '[data-slot="aui_thread-viewport"]'
 const HOVER_CLOSE_MS = 140
+const escapeSelectorValue = (value: string) => globalThis.CSS?.escape?.(value) ?? value.replace(/["\\]/g, '\\$&')
 
 const ROW_CLASS =
   'relative flex w-full min-w-0 max-w-full cursor-pointer select-none overflow-hidden rounded-md px-2 py-1 text-left outline-hidden transition-colors duration-100 ease-out hover:bg-(--ui-row-hover-background) hover:transition-none'
@@ -62,7 +63,7 @@ function userPromptText(content: unknown): string {
 
 function scrollToPrompt(id: string) {
   const viewport = document.querySelector<HTMLElement>(VIEWPORT)
-  const node = viewport?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
+  const node = viewport?.querySelector<HTMLElement>(`[data-message-id="${escapeSelectorValue(id)}"]`)
 
   if (!viewport || !node) {
     return
@@ -142,7 +143,7 @@ export const ThreadTimeline: FC = () => {
       const top = viewport.getBoundingClientRect().top
 
       const offsets = entries.map(entry => {
-        const node = viewport.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(entry.id)}"]`)
+        const node = viewport.querySelector<HTMLElement>(`[data-message-id="${escapeSelectorValue(entry.id)}"]`)
 
         return node ? node.getBoundingClientRect().top - top : null
       })

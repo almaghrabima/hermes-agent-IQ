@@ -56,7 +56,7 @@ def test_run_consumes_was_auto_reset_in_cleanup_block():
     for node in ast.walk(tree):
         if not isinstance(node, ast.If):
             continue
-        names = {
+        {
             n.attr
             for n in ast.walk(node)
             if isinstance(n, ast.Attribute)

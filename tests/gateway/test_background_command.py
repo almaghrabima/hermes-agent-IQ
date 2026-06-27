@@ -4,7 +4,6 @@ Tests the _handle_background_command handler (run a prompt in a separate
 background session) across gateway messenger platforms.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -88,7 +87,6 @@ class TestHandleBackgroundCommand:
 
         # Patch asyncio.create_task to capture the coroutine
         created_tasks = []
-        original_create_task = asyncio.create_task
 
         def capture_task(coro, *args, **kwargs):
             # Close the coroutine to avoid warnings
@@ -338,13 +336,13 @@ class TestRunBackgroundTask:
             await runner._run_background_task("make stuff", source, "bg_test")
 
             mock_adapter.send_voice.assert_called_once()
-            assert mock_adapter.send_voice.call_args.kwargs["audio_path"] == _ogg
+            assert mock_adapter.send_voice.call_args.kwargs["audio_path"] == _os.path.realpath(_ogg)
             mock_adapter.send_video.assert_called_once()
-            assert mock_adapter.send_video.call_args.kwargs["video_path"] == _mp4
+            assert mock_adapter.send_video.call_args.kwargs["video_path"] == _os.path.realpath(_mp4)
             mock_adapter.send_image_file.assert_called_once()
-            assert mock_adapter.send_image_file.call_args.kwargs["image_path"] == _png
+            assert mock_adapter.send_image_file.call_args.kwargs["image_path"] == _os.path.realpath(_png)
             mock_adapter.send_document.assert_called_once()
-            assert mock_adapter.send_document.call_args.kwargs["file_path"] == _pdf
+            assert mock_adapter.send_document.call_args.kwargs["file_path"] == _os.path.realpath(_pdf)
         finally:
             import shutil as _shutil
             _shutil.rmtree(_tmpdir, ignore_errors=True)

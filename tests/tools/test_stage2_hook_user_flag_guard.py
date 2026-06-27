@@ -38,7 +38,7 @@ MAIN_WRAPPER = REPO_ROOT / "docker" / "main-wrapper.sh"
 def _read(p: Path) -> str:
     if not p.exists():
         pytest.skip(f"{p} not present in this checkout")
-    return p.read_text()
+    return p.read_text(encoding="utf-8")
 
 
 def _guard_block(text: str) -> str:

@@ -1,7 +1,6 @@
 """Tests for Mem0 v3 API — new tool names, paginated responses, update/delete tools."""
 
 import json
-import pytest
 
 from plugins.memory.mem0 import Mem0MemoryProvider
 

@@ -208,7 +208,7 @@ export function ChatSidebar({
       gw.close();
     };
     // `profile` is read from render; scope changes bump `version` → new `gw`.
-  }, [gw]);
+  }, [gw, profile]);
 
   // Event subscriber WebSocket — receives the rebroadcast of every
   // dispatcher emit from the PTY child's gateway.  See /api/pub +

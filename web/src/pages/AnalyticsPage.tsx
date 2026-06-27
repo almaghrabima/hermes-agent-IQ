@@ -478,6 +478,8 @@ export default function AnalyticsPage() {
   }, [days, loading, load, setAfterTitle, setEnd, t.common.refresh, showTokens]);
 
   useEffect(() => {
+    // Fetching analytics is the purpose of this mount/update effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 

@@ -271,7 +271,7 @@ def main():
 
         # Save to file if requested
         if output_file:
-            with open(output_file, 'w') as f:
+            with open(output_file, 'w', encoding="utf-8") as f:
                 json.dump(results, f, indent=2)
 
         # Exit with error code if validation failed

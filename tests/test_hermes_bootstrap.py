@@ -38,7 +38,7 @@ def _fresh_import():
     runs again and the platform check re-evaluates.
     """
     sys.modules.pop("hermes_bootstrap", None)
-    import hermes_bootstrap  # noqa: WPS433
+    import hermes_bootstrap
     return hermes_bootstrap
 
 

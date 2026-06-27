@@ -94,7 +94,7 @@ class FileStateRegistryUnitTests(unittest.TestCase):
         # Bump the on-disk mtime without going through the registry.
         time.sleep(0.01)
         os.utime(p, None)
-        with open(p, "w") as f:
+        with open(p, "w", encoding="utf-8") as f:
             f.write("externally modified\n")
         warn = file_state.check_stale("A", p)
         self.assertIsNotNone(warn)
@@ -225,7 +225,7 @@ class FileToolsIntegrationTests(unittest.TestCase):
 
     def _write_seed(self, name: str, content: str = "seed\n") -> str:
         p = os.path.join(self._tmpdir, name)
-        with open(p, "w") as f:
+        with open(p, "w", encoding="utf-8") as f:
             f.write(content)
         return p
 

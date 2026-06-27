@@ -110,13 +110,13 @@ class TestNotebookExtraction(unittest.TestCase):
         nb = {"worksheets": [{"cells": [
             {"cell_type": "code", "input": "ignored", "source": "legacy cell"}]}],
             "nbformat": 3}
-        with open(p, "w") as fh:
+        with open(p, "w", encoding="utf-8") as fh:
             json.dump(nb, fh)
         self.assertIn("legacy cell", extract_document_text(p))
 
     def test_malformed_notebook_raises(self):
         p = os.path.join(self.tmp, "bad.ipynb")
-        with open(p, "w") as fh:
+        with open(p, "w", encoding="utf-8") as fh:
             fh.write("{ not valid json")
         with self.assertRaises(ExtractionError):
             extract_document_text(p)

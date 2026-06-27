@@ -178,7 +178,7 @@ def _fast_rlm_available() -> bool:
 
     # (3) pinned PyPI
     try:
-        from tools.lazy_deps import FeatureUnavailable, ensure
+        from tools.lazy_deps import ensure
 
         ensure("tool.fast_rlm", prompt=False)
         return importlib.util.find_spec("fast_rlm") is not None

@@ -989,7 +989,7 @@ class TestChatCompletionsEndpoint:
                     {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
                 )
 
-            with patch.object(adapter, "_run_agent", side_effect=_mock_run_agent) as mock_run:
+            with patch.object(adapter, "_run_agent", side_effect=_mock_run_agent):
                 resp = await cli.post(
                     "/v1/chat/completions",
                     json={
@@ -3206,7 +3206,7 @@ class TestConversationParameter:
                 })
                 assert resp1.status == 200
                 data1 = await resp1.json()
-                resp1_id = data1["id"]
+                data1["id"]
 
                 # Second request — should chain
                 mock_run.return_value = (

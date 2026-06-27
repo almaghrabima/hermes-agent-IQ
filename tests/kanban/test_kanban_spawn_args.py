@@ -1,5 +1,4 @@
 """Tests for the extracted build_spawn_args / _popen_from_spawn_args helpers."""
-import os
 from hermes_cli import kanban_db
 
 

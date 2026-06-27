@@ -557,7 +557,7 @@ class TestCodeExpiry:
     def test_expired_codes_cleaned_up(self, tmp_path):
         with patch("gateway.pairing.PAIRING_DIR", tmp_path):
             store = PairingStore()
-            code = store.generate_code("telegram", "user1")
+            store.generate_code("telegram", "user1")
 
             # Manually expire all pending entries
             pending = store._load_json(store._pending_path("telegram"))

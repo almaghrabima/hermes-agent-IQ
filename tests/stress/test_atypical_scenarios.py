@@ -461,7 +461,7 @@ def _(home, kb):
             workspace_path="/nonexistent/path/that/does/not/exist",
         )
         # Run dispatch_once with a dummy spawn_fn
-        result = kb.dispatch_once(conn, spawn_fn=lambda *_: 99999)
+        kb.dispatch_once(conn, spawn_fn=lambda *_: 99999)
         # If the path was rejected, the task went through _record_spawn_failure
         task = kb.get_task(conn, tid)
         # Possible outcomes:
@@ -631,7 +631,7 @@ def _(home, kb):
         for i in range(1000):
             kb.claim_task(conn, tid)
             # Force close the run directly so we can make another claim
-            rid = kb.latest_run(conn, tid).id
+            kb.latest_run(conn, tid).id
             kb._end_run(conn, tid, outcome="reclaimed", summary=f"attempt {i}")
             conn.execute(
                 "UPDATE tasks SET status='ready', claim_lock=NULL, "
@@ -670,7 +670,7 @@ def _(home, kb):
                     assignee="w",
                 )
         t0 = time.monotonic()
-        stats = kb.board_stats(conn)
+        kb.board_stats(conn)
         el_stats = (time.monotonic() - t0) * 1000
         t0 = time.monotonic()
         tasks = kb.list_tasks(conn)
@@ -705,7 +705,7 @@ def _idempotency_race_worker(hermes_home: str, key: str, result_file: str,
         )
     finally:
         conn.close()
-    with open(result_file, "w") as f:
+    with open(result_file, "w", encoding="utf-8") as f:
         f.write(tid)
 
 
@@ -731,12 +731,12 @@ def _(home, kb):
         p.start()
     time.sleep(0.1)  # let them hit the spin
     # Fire the gun
-    with open(barrier, "w") as f:
+    with open(barrier, "w", encoding="utf-8") as f:
         f.write("go")
     for p in procs:
         p.join(timeout=10)
 
-    tids = [open(r).read().strip() for r in results if os.path.exists(r)]
+    tids = [open(r, encoding="utf-8").read().strip() for r in results if os.path.exists(r)]
     assert len(tids) == 2, f"only {len(tids)} workers finished"
     assert tids[0] == tids[1], (
         f"idempotency key race produced two different tasks: {tids}"
@@ -905,7 +905,7 @@ def _(home, kb):
         # Empty summary on complete → accept
         kb.claim_task(conn, tid)
         kb.complete_task(conn, tid, summary="")
-        run = kb.latest_run(conn, tid)
+        kb.latest_run(conn, tid)
         # Empty summary falls back to result; both empty → None on run
         print(f"  empty body accepted, empty-title rejected")
     finally:
@@ -925,7 +925,7 @@ def _(home, kb):
         back = kb.get_task(conn, tid)
         assert back.tenant == weird_tenant
         # board_stats groups by tenant — verify it doesn't fall over
-        stats = kb.board_stats(conn)
+        kb.board_stats(conn)
         print(f"  multiline tenant stored and stats still work")
     finally:
         conn.close()

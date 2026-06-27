@@ -81,7 +81,7 @@ def _get_sync_client() -> Any:
         )
 
     _ensure_parallel_sdk_installed()
-    from parallel import Parallel  # noqa: WPS433 — deliberately lazy
+    from parallel import Parallel
 
     client = Parallel(api_key=api_key)
     _wt._parallel_client = client
@@ -107,7 +107,7 @@ def _get_async_client() -> Any:
         )
 
     _ensure_parallel_sdk_installed()
-    from parallel import AsyncParallel  # noqa: WPS433 — deliberately lazy
+    from parallel import AsyncParallel
 
     client = AsyncParallel(api_key=api_key)
     _wt._async_parallel_client = client

@@ -249,7 +249,7 @@ class TestSystemPromptActiveProfile:
         # paths, (3) says "do not modify another profile's" without
         # explicit user direction.
         from pathlib import Path
-        src = Path("agent/system_prompt.py").read_text()
+        src = Path("agent/system_prompt.py").read_text(encoding="utf-8")
         assert "Active Hermes profile" in src
         assert "cross_profile=True" in src
         assert "~/.hermes/profiles/" in src

@@ -29,7 +29,7 @@ except ImportError:
     # Manually load .env if dotenv not available
     env_file = Path(__file__).parent.parent.parent / ".env"
     if env_file.exists():
-        with open(env_file) as f:
+        with open(env_file, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
@@ -216,7 +216,7 @@ def test_environment_isolation():
     
     # Create file in task1
     print("Step 1: Creating file in task1...")
-    result1 = terminal_tool("echo 'task1 data' > /tmp/isolated.txt", task_id=task1)
+    terminal_tool("echo 'task1 data' > /tmp/isolated.txt", task_id=task1)
     
     # Try to read from task2 (should not exist)
     print("Step 2: Trying to read file from task2 (should not exist)...")

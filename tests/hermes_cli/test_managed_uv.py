@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import stat
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -17,7 +16,7 @@ import pytest
 def _make_executable(path: Path) -> None:
     """Create a minimal fake uv binary at *path*."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("#!/bin/sh\necho uv 0.1.2\n")
+    path.write_text("#!/bin/sh\necho uv 0.1.2\n", encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
 
 

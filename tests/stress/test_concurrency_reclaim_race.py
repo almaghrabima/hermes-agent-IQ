@@ -91,7 +91,7 @@ def worker_loop(worker_id: int, hermes_home: str, result_file: str) -> None:
         finally:
             conn.close()
 
-    with open(result_file, "w") as f:
+    with open(result_file, "w", encoding="utf-8") as f:
         json.dump(events, f)
 
 
@@ -116,7 +116,7 @@ def reclaimer_loop(hermes_home: str, result_file: str) -> None:
         finally:
             conn.close()
         time.sleep(0.2)
-    with open(result_file, "w") as f:
+    with open(result_file, "w", encoding="utf-8") as f:
         json.dump(events, f)
 
 
@@ -158,11 +158,11 @@ def main():
     all_events = []
     for f in worker_results:
         if os.path.isfile(f):
-            with open(f) as fh:
+            with open(f, encoding="utf-8") as fh:
                 all_events.extend(json.load(fh))
     reclaim_events = []
     if os.path.isfile(reclaim_result):
-        with open(reclaim_result) as fh:
+        with open(reclaim_result, encoding="utf-8") as fh:
             reclaim_events = json.load(fh)
 
     op_counts = {}

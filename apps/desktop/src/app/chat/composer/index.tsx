@@ -45,8 +45,8 @@ import {
   $composerPoppedOut,
   POPOUT_WIDTH_REM,
   readPopoutBounds,
-  setComposerPoppedOut,
-  setComposerPopoutPosition
+  setComposerPopoutPosition,
+  setComposerPoppedOut
 } from '@/store/composer-popout'
 import {
   $queuedPromptsBySession,
@@ -60,8 +60,8 @@ import {
   updateQueuedPrompt
 } from '@/store/composer-queue'
 import { $statusItemsBySession } from '@/store/composer-status'
-import { $previewStatusBySession } from '@/store/preview-status'
 import { notify } from '@/store/notifications'
+import { $previewStatusBySession } from '@/store/preview-status'
 import { $gatewayState, $messages, setSessionPickerOpen } from '@/store/session'
 import { $threadScrolledUp } from '@/store/thread-scroll'
 import { isSecondaryWindow } from '@/store/windows'

@@ -538,7 +538,7 @@ class TestSandboxWritesUtf8:
 
         # Write with default encoding (simulating the old buggy code).
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", delete=False
+            encoding="utf-8", mode="w", suffix=".py", delete=False
         ) as f:
             try:
                 f.write(stub)

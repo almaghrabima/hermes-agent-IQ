@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from gateway.platforms.base import ProcessingOutcome
 
 try:
-    import lark_oapi
+    import lark_oapi as lark_oapi
     _HAS_LARK_OAPI = True
 except ImportError:
     _HAS_LARK_OAPI = False
@@ -1470,7 +1470,7 @@ class TestAdapterBehavior(unittest.TestCase):
         from plugins.platforms.feishu.adapter import FeishuAdapter
 
         adapter = FeishuAdapter(PlatformConfig())
-        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", delete=False) as tmp:
             tmp.write("hello from feishu")
             path = tmp.name
 

@@ -97,7 +97,7 @@ def _require_azure_identity():
             ) from exc
 
         # Retry import after lazy install.
-        import azure.identity as _ai  # noqa: WPS440
+        import azure.identity as _ai
         return _ai
 
 

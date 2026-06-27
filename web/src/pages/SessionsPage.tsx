@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect -- Session effects intentionally own remote loading and URL-derived view synchronization. */
 import {
   useEffect,
   useLayoutEffect,
@@ -842,7 +843,10 @@ export default function SessionsPage() {
   // baseline without triggering a redundant reload (mount already loads).
   const newestSeenRef = useRef<string | null>(null);
   const pageRef = useRef(page);
-  pageRef.current = page;
+
+  useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
 
   useEffect(() => {
     loadSessions(page);

@@ -48,7 +48,7 @@ def build_session_provenance(
         return None
 
     parent_id = row.get("parent_session_id")
-    end_reason = row.get("end_reason")
+    row.get("end_reason")
 
     # Walk parents to the lineage root and count compression depth. Only
     # compression-split parents (parent.end_reason == 'compression') count

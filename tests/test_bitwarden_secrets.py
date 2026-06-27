@@ -176,7 +176,7 @@ def test_install_bws_rejects_malicious_member(hermes_home, monkeypatch):
         if url.endswith(".zip"):
             Path(dest).write_bytes(zip_bytes)
         elif url.endswith(".txt"):
-            Path(dest).write_text(checksum_text)
+            Path(dest).write_text(checksum_text, encoding="utf-8")
         else:
             raise AssertionError(f"unexpected download url: {url}")
 
@@ -199,7 +199,7 @@ def test_install_bws_happy_path(hermes_home, monkeypatch):
         if url.endswith(".zip"):
             Path(dest).write_bytes(zip_bytes)
         elif url.endswith(".txt"):
-            Path(dest).write_text(checksum_text)
+            Path(dest).write_text(checksum_text, encoding="utf-8")
         else:
             raise AssertionError(f"unexpected download url: {url}")
 
@@ -222,7 +222,7 @@ def test_install_bws_checksum_mismatch(hermes_home, monkeypatch):
         if url.endswith(".zip"):
             Path(dest).write_bytes(zip_bytes)
         else:
-            Path(dest).write_text(checksum_text)
+            Path(dest).write_text(checksum_text, encoding="utf-8")
 
     monkeypatch.setattr(bw, "_http_download", fake_download)
 
@@ -237,7 +237,7 @@ def test_install_bws_missing_checksum_entry(hermes_home, monkeypatch):
         if url.endswith(".zip"):
             Path(dest).write_bytes(zip_bytes)
         else:
-            Path(dest).write_text("ffffffff  some-other-file.zip\n")
+            Path(dest).write_text("ffffffff  some-other-file.zip\n", encoding="utf-8")
 
     monkeypatch.setattr(bw, "_http_download", fake_download)
 

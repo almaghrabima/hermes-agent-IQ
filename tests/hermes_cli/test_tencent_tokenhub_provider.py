@@ -443,7 +443,7 @@ class TestTencentTokenhubModelCatalogJSON:
         )
         if not os.path.isfile(catalog_path):
             pytest.skip("model-catalog.json not found in workspace")
-        with open(catalog_path) as f:
+        with open(catalog_path, encoding="utf-8") as f:
             data = json.load(f)
         # Collect all model IDs across all provider lists.
         # providers is a dict keyed by provider name, each value has a "models" list.

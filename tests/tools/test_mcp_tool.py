@@ -1184,7 +1184,6 @@ class TestToolsetInjection:
             result1 = discover_mcp_tools()
             assert "mcp_good_ping" in result1
             assert "mcp_broken_ping" not in result1
-            first_attempts = call_count
 
             # "Fix" the broken server
             broken_fixed = True

@@ -337,7 +337,6 @@ def render_skill_page(
     if len(short_desc) > 160:
         short_desc = short_desc[:157] + "..."
 
-    title = f"{name}"
     # Heuristic nicer title from name
     display_name = name.replace("-", " ").replace("_", " ").title()
 
@@ -697,7 +696,7 @@ def write_sidebar(entries):
     sidebar_path = REPO / "website" / "sidebars.ts"
     text = sidebar_path.read_text(encoding="utf-8")
     # Replace the existing Skills block.
-    pattern = re.compile(
+    re.compile(
         r"        \{\n"
         r"          type: 'category',\n"
         r"          label: 'Skills',\n"

@@ -229,7 +229,7 @@ class TestCSV:
         assert result["exported"] == 2
 
         # Verify CSV content
-        with open(csv_path, "r") as f:
+        with open(csv_path, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
             rows = list(reader)
         assert len(rows) == 2
@@ -252,7 +252,7 @@ class TestCSV:
 
     def test_import_without_collection_column(self, capsys, tmp_path):
         csv_path = str(tmp_path / "no_col.csv")
-        with open(csv_path, "w", newline="") as f:
+        with open(csv_path, "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["Q1", "A1"])
             writer.writerow(["Q2", "A2"])
@@ -265,7 +265,7 @@ class TestCSV:
 
     def test_import_skips_empty_rows(self, capsys, tmp_path):
         csv_path = str(tmp_path / "sparse.csv")
-        with open(csv_path, "w", newline="") as f:
+        with open(csv_path, "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["Q1", "A1"])
             writer.writerow(["", ""])  # empty
@@ -353,7 +353,7 @@ class TestEdgeCases:
     def test_corrupt_json_recovery(self, capsys):
         """Corrupt JSON file should be treated as empty."""
         memento_cards.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        with open(memento_cards.CARDS_FILE, "w") as f:
+        with open(memento_cards.CARDS_FILE, "w", encoding="utf-8") as f:
             f.write("{corrupted json...")
         result = _run(capsys, ["list"])
         assert result["count"] == 0
@@ -364,7 +364,7 @@ class TestEdgeCases:
     def test_missing_cards_key_recovery(self, capsys):
         """JSON without 'cards' key should be treated as empty."""
         memento_cards.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        with open(memento_cards.CARDS_FILE, "w") as f:
+        with open(memento_cards.CARDS_FILE, "w", encoding="utf-8") as f:
             json.dump({"version": 1}, f)
         result = _run(capsys, ["list"])
         assert result["count"] == 0
@@ -420,7 +420,7 @@ class TestUserAnswer:
                       "--user-answer", "my answer"])
         csv_path = str(tmp_path / "export.csv")
         _run(capsys, ["export", "--output", csv_path])
-        with open(csv_path) as f:
+        with open(csv_path, encoding="utf-8") as f:
             rows = list(csv.reader(f))
         # CSV stays 3-column (question, answer, collection) — user_answer is internal only
         assert len(rows[0]) == 3

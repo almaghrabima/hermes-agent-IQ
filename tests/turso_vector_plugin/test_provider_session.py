@@ -36,7 +36,7 @@ def test_session_end_decays_and_prunes_touched(provider):
     # An old, low-weight memory should be pruned by the session-end decay sweep.
     # After the I3 fix, decay_stale() operates on ALL rows whose idle time >= 1 day,
     # so this old memory is decayed regardless of whether it was recalled this session.
-    mid = provider._store.insert(kind="insight", project=None, cwd=None,
+    provider._store.insert(kind="insight", project=None, cwd=None,
         text="stale", what_failed=None, what_worked=None,
         embedding=[1, 0, 0, 0], created_at="2026-01-01T00:00:00+00:00",
         source_session="s0", weight=0.2)

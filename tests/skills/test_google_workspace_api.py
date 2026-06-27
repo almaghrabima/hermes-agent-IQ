@@ -65,7 +65,7 @@ def _write_token(path: Path, *, token="ya29.test", expiry=None, **extra):
     }
     if expiry is not None:
         data["expiry"] = expiry
-    path.write_text(json.dumps(data))
+    path.write_text(json.dumps(data), encoding="utf-8")
 
 
 def test_bridge_returns_valid_token(bridge_module, tmp_path):

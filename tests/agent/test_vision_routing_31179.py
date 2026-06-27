@@ -56,7 +56,7 @@ def isolated_home(monkeypatch):
 
 
 def _write_config(home: str, text: str) -> None:
-    with open(os.path.join(home, "config.yaml"), "w") as fp:
+    with open(os.path.join(home, "config.yaml"), "w", encoding="utf-8") as fp:
         fp.write(text)
 
 

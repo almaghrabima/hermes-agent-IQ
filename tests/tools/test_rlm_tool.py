@@ -161,7 +161,7 @@ def test_run_in_env_stages_files_and_parses(monkeypatch):
     assert out["result"] == "ok"
     assert out["usage"]["calls"] == 2
     # driver + cfg staged
-    staged = "\n".join(env.shipped)
+    "\n".join(env.shipped)
     assert any(p.endswith("_driver.py") for p in env.shipped)
     assert any(p.endswith("cfg.json") for p in env.shipped)
     # secret is NOT in cfg.json content, but IS in the sourced env file

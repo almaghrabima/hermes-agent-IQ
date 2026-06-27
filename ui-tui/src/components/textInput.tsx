@@ -371,6 +371,7 @@ export function supportsFastEchoTerminal(env: NodeJS.ProcessEnv = process.env): 
   // no reported drift, so widening to screen would disable the optimization for
   // those users with no evidence of a bug.
   const term = (env.TERM ?? '').trim().toLowerCase()
+
   if ((env.TMUX ?? '').trim().length > 0 || term === 'tmux' || term.startsWith('tmux-')) {
     return false
   }

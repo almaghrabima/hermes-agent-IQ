@@ -61,7 +61,7 @@ class TestMtimeSkip:
 
         # Touch one file
         time.sleep(0.05)
-        Path(tmp_files["cred_a.json"]).write_text("updated content")
+        Path(tmp_files["cred_a.json"]).write_text("updated content", encoding="utf-8")
 
         mgr.sync(force=True)
         assert upload.call_count == 1

@@ -196,6 +196,8 @@ export default function ConfigPage() {
   // Set active category when categories load
   useEffect(() => {
     if (categoryOrder.length > 0 && !activeCategory) {
+      // Derive the initial selection once asynchronously loaded categories arrive.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveCategory(categoryOrder[0]);
     }
   }, [categoryOrder, activeCategory]);
@@ -203,6 +205,8 @@ export default function ConfigPage() {
   // Load YAML when switching to YAML mode
   useEffect(() => {
     if (yamlMode) {
+      // This effect owns the loading lifecycle for the profile-scoped YAML request.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setYamlLoading(true);
       api
         .getConfigRaw()
@@ -210,10 +214,10 @@ export default function ConfigPage() {
         .catch(() => showToast(t.config.failedToLoadRaw, "error"))
         .finally(() => setYamlLoading(false));
     }
-  }, [yamlMode]);
+  }, [showToast, t.config.failedToLoadRaw, yamlMode]);
 
   /* ---- Categories ---- */
-  const categories = useMemo(() => {
+  const categories = (() => {
     if (!schema) return [];
     const allCats = [
       ...new Set(
@@ -223,7 +227,7 @@ export default function ConfigPage() {
     const ordered = categoryOrder.filter((c) => allCats.includes(c));
     const extra = allCats.filter((c) => !categoryOrder.includes(c)).sort();
     return [...ordered, ...extra];
-  }, [schema, categoryOrder]);
+  })();
 
   /* ---- Category field counts ---- */
   const categoryCounts = useMemo(() => {

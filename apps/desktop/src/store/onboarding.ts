@@ -525,6 +525,7 @@ export async function refreshOnboarding(ctx: OnboardingContext) {
   }
 
   const state = $desktopOnboarding.get()
+
   if (shouldPreserveConfiguredOnFallback(runtime, state)) {
     // Gateway probes timed out but the user was already configured — don't
     // downgrade to the blocking onboarding overlay. Surface a non-blocking

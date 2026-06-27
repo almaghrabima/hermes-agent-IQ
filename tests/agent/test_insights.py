@@ -707,7 +707,7 @@ class TestEdgeCases:
         assert report["platforms"][0]["platform"] == "cli"
 
         # Terminal format should NOT show platform section for single platform
-        text = engine.format_terminal(report)
+        engine.format_terminal(report)
         # (it still shows platforms section if there's only cli and nothing else)
         # Actually the condition is > 1 platforms OR non-cli, so single cli won't show
 

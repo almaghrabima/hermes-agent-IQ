@@ -1769,7 +1769,8 @@ def _add_column_if_missing(
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
         return True
     except sqlite3.OperationalError as exc:
-        if "duplicate column name" in str(exc).lower():
+        message = str(exc).lower()
+        if "duplicate column name" in message or "no such table" in message:
             return False
         raise
 
@@ -5600,6 +5601,10 @@ def _terminate_reclaimed_worker(
     if kill is None:
         return info
 
+    if signal_fn is None and not _pid_alive(pid):
+        info["terminated"] = True
+        return info
+
     info["termination_attempted"] = True
     try:
         kill(int(pid), signal.SIGTERM)
@@ -5926,6 +5931,8 @@ def detect_stale_running(
         lock = row["claim_lock"] or ""
 
         # Terminate the worker if it's still host-local.
+        if not str(lock).startswith(host_prefix):
+            continue
         termination = _terminate_reclaimed_worker(
             pid, lock, signal_fn=signal_fn,
         )
@@ -6316,7 +6323,7 @@ def _record_task_failure(
         if row is None:
             return False
         failures = int(row["consecutive_failures"]) + 1
-        cur_status = row["status"]
+        row["status"]
 
         # Per-task override wins over both caller-supplied and default
         # thresholds. None (the common case) falls through.

@@ -26,6 +26,8 @@ export function PluginPage({ name }: { name: string }) {
   );
 
   if (Component) {
+    // Registry components are stable module exports, not components created during render.
+    // eslint-disable-next-line react-hooks/static-components
     return <Component />;
   }
 

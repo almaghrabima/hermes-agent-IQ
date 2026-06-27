@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- The provider and its theme hooks form one public context module. */
 import {
   createContext,
   useCallback,

@@ -14,7 +14,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 
 def _make_agent(session_db, session_id, *, in_place):
@@ -291,7 +290,11 @@ class TestCompactedTurnsStaySearchable:
             # The archived originals (active=0, compacted=1) are still found by
             # the DEFAULT search — this is the durability requirement.
             after = db.search_messages("HMAC", role_filter=["user", "assistant"])
-            assert {m["id"] for m in after} == {1, 4}
+            snippets = {m["snippet"].replace(">>>", "").replace("<<<", "").strip() for m in after}
+            assert snippets == {
+                "configure the HMAC secret",
+                "rotate the HMAC",
+            }
             # Live context still excludes them.
             assert len(db.get_messages_as_conversation(sid)) == 2
 
@@ -313,4 +316,3 @@ class TestCompactedTurnsStaySearchable:
                 "ZEBRAWORD", role_filter=["user", "assistant"], include_inactive=True
             )
             assert len(recovered) == 1
-

@@ -151,7 +151,7 @@ def render_brief(plan: dict) -> str:
             f"| {d.get('format', '?')} | {d.get('resolution', '?')} | "
             f"{d.get('notes', '')} |"
         )
-    deliv_table = "\n".join(deliv_rows) if deliv_rows else "_(none)_"
+    "\n".join(deliv_rows) if deliv_rows else "_(none)_"
 
     # Replacements (single-pass)
     replacements = {
@@ -471,7 +471,7 @@ def main():
                     help="Write TEAM.md alongside (default: skipped)")
     args = ap.parse_args()
 
-    plan = json.loads(Path(args.plan_json).read_text())
+    plan = json.loads(Path(args.plan_json).read_text(encoding="utf-8"))
     errors = validate_plan(plan)
     if errors:
         print("Plan validation failed:", file=sys.stderr)
@@ -483,15 +483,15 @@ def main():
     team = render_team_md(plan)
     setup = render_setup_sh(plan, brief, team)
 
-    Path(args.out).write_text(setup)
+    Path(args.out).write_text(setup, encoding="utf-8")
     os.chmod(args.out, 0o755)
     print(f"Wrote {args.out}")
 
     if args.brief_out:
-        Path(args.brief_out).write_text(brief)
+        Path(args.brief_out).write_text(brief, encoding="utf-8")
         print(f"Wrote {args.brief_out}")
     if args.team_out:
-        Path(args.team_out).write_text(team)
+        Path(args.team_out).write_text(team, encoding="utf-8")
         print(f"Wrote {args.team_out}")
 
 

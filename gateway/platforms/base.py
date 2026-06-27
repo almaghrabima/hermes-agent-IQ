@@ -3199,7 +3199,7 @@ class BasePlatformAdapter(ABC):
         ``MEDIA:`/path/to/file.png` ``) to avoid breaking path extraction.
         """
         chars = list(content)
-        n = len(chars)
+        len(chars)
 
         # Build list of (start, end) spans to mask
         spans: list = []

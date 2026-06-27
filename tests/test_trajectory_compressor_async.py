@@ -45,7 +45,7 @@ class TestAsyncClientLazyCreation:
 
         mock_async_openai = MagicMock()
         with patch("openai.AsyncOpenAI", mock_async_openai):
-            client = comp._get_async_client()
+            comp._get_async_client()
 
         mock_async_openai.assert_called_once_with(
             api_key="test-key",
@@ -75,8 +75,8 @@ class TestAsyncClientLazyCreation:
             return instance
 
         with patch("openai.AsyncOpenAI", side_effect=mock_constructor):
-            client1 = comp._get_async_client()
-            client2 = comp._get_async_client()
+            comp._get_async_client()
+            comp._get_async_client()
 
         # Should have created two separate instances
         assert call_count == 2
@@ -90,7 +90,7 @@ class TestSourceLineVerification:
     def _read_file() -> str:
         import os
         base = os.path.dirname(os.path.dirname(__file__))
-        with open(os.path.join(base, "trajectory_compressor.py")) as f:
+        with open(os.path.join(base, "trajectory_compressor.py"), encoding="utf-8") as f:
             return f.read()
 
     def test_no_eager_async_openai_in_init(self):

@@ -158,7 +158,7 @@ class TestBrowserVisionAnnotate:
 
         with (
             patch("tools.browser_tool._run_browser_command") as mock_cmd,
-            patch("tools.browser_tool.call_llm") as mock_call_llm,
+            patch("tools.browser_tool.call_llm"),
             patch("tools.browser_tool._get_vision_model", return_value="test-model"),
         ):
             mock_cmd.return_value = {"success": True, "data": {}}
@@ -179,7 +179,7 @@ class TestBrowserVisionAnnotate:
 
         with (
             patch("tools.browser_tool._run_browser_command") as mock_cmd,
-            patch("tools.browser_tool.call_llm") as mock_call_llm,
+            patch("tools.browser_tool.call_llm"),
             patch("tools.browser_tool._get_vision_model", return_value="test-model"),
         ):
             mock_cmd.return_value = {"success": True, "data": {}}
@@ -392,25 +392,25 @@ class TestDogfoodSkill:
         )
 
     def test_skill_md_has_frontmatter(self):
-        with open(os.path.join(self.skill_dir, "SKILL.md")) as f:
+        with open(os.path.join(self.skill_dir, "SKILL.md"), encoding="utf-8") as f:
             content = f.read()
         assert content.startswith("---")
         assert "name: dogfood" in content
         assert "description:" in content
 
     def test_skill_references_browser_console(self):
-        with open(os.path.join(self.skill_dir, "SKILL.md")) as f:
+        with open(os.path.join(self.skill_dir, "SKILL.md"), encoding="utf-8") as f:
             content = f.read()
         assert "browser_console" in content
 
     def test_skill_references_annotate(self):
-        with open(os.path.join(self.skill_dir, "SKILL.md")) as f:
+        with open(os.path.join(self.skill_dir, "SKILL.md"), encoding="utf-8") as f:
             content = f.read()
         assert "annotate" in content
 
     def test_taxonomy_has_severity_levels(self):
         with open(
-            os.path.join(self.skill_dir, "references", "issue-taxonomy.md")
+            os.path.join(self.skill_dir, "references", "issue-taxonomy.md"), encoding="utf-8"
         ) as f:
             content = f.read()
         assert "Critical" in content
@@ -420,7 +420,7 @@ class TestDogfoodSkill:
 
     def test_taxonomy_has_categories(self):
         with open(
-            os.path.join(self.skill_dir, "references", "issue-taxonomy.md")
+            os.path.join(self.skill_dir, "references", "issue-taxonomy.md"), encoding="utf-8"
         ) as f:
             content = f.read()
         assert "Functional" in content

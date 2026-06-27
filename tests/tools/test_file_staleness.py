@@ -81,7 +81,7 @@ class TestStalenessCheck(unittest.TestCase):
         file_state.get_registry().clear()
         self._tmpdir = tempfile.mkdtemp()
         self._tmpfile = os.path.join(self._tmpdir, "stale_test.txt")
-        with open(self._tmpfile, "w") as f:
+        with open(self._tmpfile, "w", encoding="utf-8") as f:
             f.write("original content\n")
 
     def tearDown(self):
@@ -110,7 +110,7 @@ class TestStalenessCheck(unittest.TestCase):
 
         # Simulate external modification
         time.sleep(0.05)
-        with open(self._tmpfile, "w") as f:
+        with open(self._tmpfile, "w", encoding="utf-8") as f:
             f.write("someone else changed this\n")
 
         result = json.loads(write_file_tool(self._tmpfile, "new content", task_id="t1"))
@@ -143,7 +143,7 @@ class TestStalenessCheck(unittest.TestCase):
         read_file_tool(self._tmpfile, task_id="task_a")
 
         time.sleep(0.05)
-        with open(self._tmpfile, "w") as f:
+        with open(self._tmpfile, "w", encoding="utf-8") as f:
             f.write("changed\n")
 
         result = json.loads(write_file_tool(self._tmpfile, "new", task_id="task_b"))
@@ -159,9 +159,9 @@ class TestStalenessCheck(unittest.TestCase):
 
         start_file = os.path.join(start_dir, "shared.txt")
         live_file = os.path.join(live_dir, "shared.txt")
-        with open(start_file, "w") as f:
+        with open(start_file, "w", encoding="utf-8") as f:
             f.write("start copy\n")
-        with open(live_file, "w") as f:
+        with open(live_file, "w", encoding="utf-8") as f:
             f.write("live copy\n")
 
         fake_ops = _make_fake_ops("live copy\n", 10)
@@ -180,7 +180,7 @@ class TestStalenessCheck(unittest.TestCase):
                 read_file_tool("shared.txt", task_id="live_task")
 
                 time.sleep(0.05)
-                with open(live_file, "w") as f:
+                with open(live_file, "w", encoding="utf-8") as f:
                     f.write("live copy modified elsewhere\n")
 
                 result = json.loads(
@@ -208,7 +208,7 @@ class TestPatchStaleness(unittest.TestCase):
         file_state.get_registry().clear()
         self._tmpdir = tempfile.mkdtemp()
         self._tmpfile = os.path.join(self._tmpdir, "patch_test.txt")
-        with open(self._tmpfile, "w") as f:
+        with open(self._tmpfile, "w", encoding="utf-8") as f:
             f.write("original line\n")
 
     def tearDown(self):
@@ -227,7 +227,7 @@ class TestPatchStaleness(unittest.TestCase):
         read_file_tool(self._tmpfile, task_id="p1")
 
         time.sleep(0.05)
-        with open(self._tmpfile, "w") as f:
+        with open(self._tmpfile, "w", encoding="utf-8") as f:
             f.write("externally modified\n")
 
         result = json.loads(patch_tool(

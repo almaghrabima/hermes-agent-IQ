@@ -1,6 +1,5 @@
 """Provider recall with a deterministic fake embedder (no model download)."""
 import threading
-import os
 
 import pytest
 

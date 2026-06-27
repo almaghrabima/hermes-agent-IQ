@@ -28,6 +28,7 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
   const { themeName, availableThemes, setTheme, fontId, fontChoices, setFont } = useTheme();
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const narrowViewport = useBelowBreakpoint(640);
@@ -59,13 +60,19 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
   const current = availableThemes.find((th) => th.name === themeName);
   const label = current?.label ?? themeName;
   const sheetTitle = t.theme?.title ?? "Theme";
+  const toggleOpen = () => {
+    if (!open && dropUp) {
+      setAnchorRect(wrapperRef.current?.getBoundingClientRect() ?? null);
+    }
+    setOpen((value) => !value);
+  };
 
   return (
     <div ref={wrapperRef} className="relative">
       <Button
         ghost
         size={collapsed ? "icon" : undefined}
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggleOpen}
         className={cn(
           collapsed
             ? "text-text-secondary hover:text-foreground hover:bg-transparent"
@@ -114,7 +121,6 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
       )}
 
       {open && !useMobileSheet && (() => {
-        const rect = wrapperRef.current?.getBoundingClientRect();
         const dropdown = (
           <div
             ref={dropdownRef}
@@ -127,8 +133,8 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
             )}
             role="listbox"
             style={
-              dropUp && rect
-                ? { bottom: window.innerHeight - rect.top + 4, left: rect.left }
+              dropUp && anchorRect
+                ? { bottom: window.innerHeight - anchorRect.top + 4, left: anchorRect.left }
                 : undefined
             }
           >

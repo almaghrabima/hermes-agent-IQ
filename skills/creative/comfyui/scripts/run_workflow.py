@@ -444,13 +444,13 @@ class ComfyRunner:
 
 def _inline_schema(workflow: dict) -> dict:
     """Generate schema using the sibling extract_schema module."""
-    from extract_schema import extract_schema  # noqa: WPS433
+    from extract_schema import extract_schema
     return extract_schema(workflow)
 
 
 def load_schema(schema_path: str | None, workflow: dict) -> dict:
     if schema_path:
-        with open(schema_path) as f:
+        with open(schema_path, encoding="utf-8") as f:
             return json.load(f)
     return _inline_schema(workflow)
 
@@ -620,7 +620,7 @@ def main(argv: list[str] | None = None) -> int:
     args_str = args.args
     if args_str.startswith("@"):
         try:
-            args_str = Path(args_str[1:]).read_text()
+            args_str = Path(args_str[1:]).read_text(encoding="utf-8")
         except OSError as e:
             emit_json({"error": f"Cannot read args file: {e}"})
             return 1

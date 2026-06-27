@@ -70,7 +70,7 @@ def _write_manifest(catalog_dir: Path, name: str, body: dict) -> Path:
     entry_dir = catalog_dir / name
     entry_dir.mkdir(exist_ok=True)
     path = entry_dir / "manifest.yaml"
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         yaml.safe_dump(body, f)
     return path
 

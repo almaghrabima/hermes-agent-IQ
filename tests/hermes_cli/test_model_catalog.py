@@ -108,7 +108,7 @@ class TestFetchSuccess:
 
         cache_file = model_catalog._cache_path()
         assert cache_file.exists()
-        with open(cache_file) as fh:
+        with open(cache_file, encoding="utf-8") as fh:
             assert json.load(fh) == manifest
 
     def test_second_call_uses_in_process_cache(self, isolated_home):
@@ -159,7 +159,7 @@ class TestFetchFailure:
         # Write stale cache directly (mtime in the past).
         cache = model_catalog._cache_path()
         cache.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache, "w") as fh:
+        with open(cache, "w", encoding="utf-8") as fh:
             json.dump(manifest, fh)
         old = time.time() - 30 * 24 * 3600  # 30 days ago
         import os as _os

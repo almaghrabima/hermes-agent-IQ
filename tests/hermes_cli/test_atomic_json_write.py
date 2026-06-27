@@ -88,7 +88,7 @@ class TestAtomicJsonWrite:
         target = str(tmp_path / "string_path.json")
         atomic_json_write(target, {"string": True})
 
-        result = json.loads(Path(target).read_text())
+        result = json.loads(Path(target).read_text(encoding="utf-8"))
         assert result == {"string": True}
 
     def test_writes_list_data(self, tmp_path):

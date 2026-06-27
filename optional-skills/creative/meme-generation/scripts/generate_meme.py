@@ -48,7 +48,7 @@ def _fetch_url(url: str, timeout: int = 15) -> bytes:
 
 def load_curated_templates() -> dict:
     """Load templates with hand-tuned text field positions."""
-    with open(TEMPLATES_FILE) as f:
+    with open(TEMPLATES_FILE, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -86,19 +86,19 @@ def fetch_imgflip_templates() -> list:
     if IMGFLIP_CACHE_FILE.exists():
         age = time.time() - IMGFLIP_CACHE_FILE.stat().st_mtime
         if age < IMGFLIP_CACHE_MAX_AGE:
-            with open(IMGFLIP_CACHE_FILE) as f:
+            with open(IMGFLIP_CACHE_FILE, encoding="utf-8") as f:
                 return json.load(f)
 
     try:
         data = json.loads(_fetch_url(IMGFLIP_API))
         memes = data.get("data", {}).get("memes", [])
-        with open(IMGFLIP_CACHE_FILE, "w") as f:
+        with open(IMGFLIP_CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(memes, f)
         return memes
     except Exception as e:
         # If fetch fails and we have stale cache, use it
         if IMGFLIP_CACHE_FILE.exists():
-            with open(IMGFLIP_CACHE_FILE) as f:
+            with open(IMGFLIP_CACHE_FILE, encoding="utf-8") as f:
                 return json.load(f)
         print(f"Warning: could not fetch imgflip templates: {e}", file=sys.stderr)
         return []

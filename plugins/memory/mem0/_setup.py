@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from hermes_constants import get_hermes_home
+from hermes_constants import get_hermes_home as get_hermes_home
 
 from ._oss_providers import (
     LLM_PROVIDERS,
@@ -189,7 +189,7 @@ def _write_env(env_path: Path, env_writes: dict[str, str]) -> None:
     env_path.parent.mkdir(parents=True, exist_ok=True)
     existing_lines: list[str] = []
     if env_path.exists():
-        existing_lines = env_path.read_text().splitlines()
+        existing_lines = env_path.read_text(encoding="utf-8").splitlines()
 
     updated_keys: set[str] = set()
     new_lines: list[str] = []
@@ -204,7 +204,7 @@ def _write_env(env_path: Path, env_writes: dict[str, str]) -> None:
         if k not in updated_keys:
             new_lines.append(f"{k}={v}")
 
-    env_path.write_text("\n".join(new_lines) + "\n")
+    env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
 
 def _save_mem0_json(hermes_home: str, data: dict) -> None:

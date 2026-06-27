@@ -1190,7 +1190,7 @@ class CuaDriverBackend(ComputerUseBackend):
             summary, tree = _split_tree_text(text)
 
             # Parse element count from summary e.g. "✅ AppName — 42 elements, turn 3..."
-            m = re.search(r'(\d+)\s+elements?', summary)
+            re.search(r'(\d+)\s+elements?', summary)
 
             # Surface 2 of NousResearch/hermes-agent#47072: prefer the
             # canonical structuredContent.elements array (trycua/cua#1961).

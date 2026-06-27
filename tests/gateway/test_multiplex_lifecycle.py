@@ -1,5 +1,4 @@
 """Phase 4: lifecycle guard + per-profile observability."""
-import pytest
 
 
 class TestServedProfilesStatus:

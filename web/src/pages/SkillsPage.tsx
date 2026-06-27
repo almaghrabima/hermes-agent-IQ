@@ -171,7 +171,7 @@ export default function SkillsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedProfile]);
+  }, [selectedProfile, showToast, t.common.loading]);
 
   /* ---- Toggle skill ---- */
   const handleToggleSkill = async (skill: SkillInfo) => {
@@ -1357,6 +1357,8 @@ function SkillDetailDialog({
 
   useEffect(() => {
     let cancelled = false;
+    // This effect owns the loading lifecycle for the selected hub result.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPreviewLoading(true);
     api
       .previewSkillFromHub(result.identifier)

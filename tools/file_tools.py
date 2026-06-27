@@ -5,6 +5,7 @@ import errno
 import json
 import logging
 import os
+import tempfile
 import threading
 from pathlib import Path
 
@@ -377,6 +378,17 @@ _hermes_config_resolved: str | None = None
 _hermes_config_resolved_loaded = False
 
 
+def _is_under_os_temp_dir(path: str) -> bool:
+    """Return True when ``path`` is inside the platform temp directory."""
+    try:
+        resolved = Path(path).expanduser().resolve(strict=False)
+        tmp_root = Path(tempfile.gettempdir()).resolve(strict=False)
+        resolved.relative_to(tmp_root)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def _get_hermes_config_resolved() -> str | None:
     """Return the resolved absolute path of the Hermes config file (cached)."""
     global _hermes_config_resolved, _hermes_config_resolved_loaded
@@ -407,6 +419,8 @@ def _check_sensitive_path(filepath: str, task_id: str = "default") -> str | None
     )
     for prefix in _SENSITIVE_PATH_PREFIXES:
         if resolved.startswith(prefix) or normalized.startswith(prefix):
+            if _is_under_os_temp_dir(resolved) or _is_under_os_temp_dir(normalized):
+                continue
             return _err
     if resolved in _SENSITIVE_EXACT_PATHS or normalized in _SENSITIVE_EXACT_PATHS:
         return _err

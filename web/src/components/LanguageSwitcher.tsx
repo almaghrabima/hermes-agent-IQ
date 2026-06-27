@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 export function LanguageSwitcher({ collapsed = false, dropUp = false }: LanguageSwitcherProps) {
   const { locale, setLocale, t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const narrowViewport = useBelowBreakpoint(640);
@@ -61,12 +62,18 @@ export function LanguageSwitcher({ collapsed = false, dropUp = false }: Language
   const current = LOCALE_META[locale];
   const allLocales = Object.entries(LOCALE_META) as Array<[Locale, typeof current]>;
   const sheetTitle = t.language.switchTo;
+  const toggleOpen = () => {
+    if (!open && dropUp) {
+      setAnchorRect(containerRef.current?.getBoundingClientRect() ?? null);
+    }
+    setOpen((value) => !value);
+  };
 
   return (
     <div ref={containerRef} className="relative inline-flex">
       <Button
         ghost
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleOpen}
         title={t.language.switchTo}
         aria-label={t.language.switchTo}
         aria-haspopup="listbox"
@@ -105,7 +112,6 @@ export function LanguageSwitcher({ collapsed = false, dropUp = false }: Language
       )}
 
       {open && !useMobileSheet && (() => {
-        const rect = containerRef.current?.getBoundingClientRect();
         const dropdown = (
           <div
             ref={dropdownRef}
@@ -116,8 +122,8 @@ export function LanguageSwitcher({ collapsed = false, dropUp = false }: Language
             )}
             role="listbox"
             style={
-              dropUp && rect
-                ? { bottom: window.innerHeight - rect.top + 4, left: rect.left }
+              dropUp && anchorRect
+                ? { bottom: window.innerHeight - anchorRect.top + 4, left: anchorRect.left }
                 : undefined
             }
           >

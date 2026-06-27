@@ -9,7 +9,6 @@ Verifies:
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 
@@ -26,9 +25,9 @@ def test_kanban_tools_hidden_without_env_var(monkeypatch, tmp_path):
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
 
-    import tools.kanban_tools  # ensure registered
     from tools.registry import invalidate_check_fn_cache, registry
     from toolsets import resolve_toolset
+    import tools.kanban_tools  # noqa: F401 — register kanban tools for direct registry assertions
 
     invalidate_check_fn_cache()
     schema = registry.get_definitions(set(resolve_toolset("hermes-cli")), quiet=True)
@@ -46,7 +45,6 @@ def test_kanban_tools_visible_with_env_var(monkeypatch, tmp_path):
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
 
-    import tools.kanban_tools  # ensure registered
     from tools.registry import invalidate_check_fn_cache, registry
     from toolsets import resolve_toolset
 
@@ -70,7 +68,6 @@ def test_kanban_worker_env_overrides_profile_toolset_filter(monkeypatch, tmp_pat
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
 
-    import tools.kanban_tools  # ensure registered
     from model_tools import _clear_tool_defs_cache, get_tool_definitions
     from tools.registry import invalidate_check_fn_cache
 
@@ -100,7 +97,6 @@ def test_worker_with_kanban_toolset_still_hides_board_routing(monkeypatch, tmp_p
     (home / "config.yaml").write_text("toolsets:\n  - kanban\n")
     monkeypatch.setenv("HERMES_HOME", str(home))
 
-    import tools.kanban_tools  # ensure registered
     from tools.registry import invalidate_check_fn_cache, registry
     from toolsets import resolve_toolset
 
@@ -125,7 +121,6 @@ def test_kanban_tools_visible_with_toolset_config(monkeypatch, tmp_path):
     (home / "config.yaml").write_text("toolsets:\n  - kanban\n")
     monkeypatch.setenv("HERMES_HOME", str(home))
 
-    import tools.kanban_tools  # ensure registered
     from tools.registry import invalidate_check_fn_cache, registry
     from toolsets import resolve_toolset
 

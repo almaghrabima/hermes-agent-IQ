@@ -2584,7 +2584,7 @@ class SessionDB:
         def _do(conn):
             from agent.device_identity import next_id as _next_id, get_device_id as _dev
             new_id = _next_id()
-            cursor = conn.execute(
+            conn.execute(
                 """INSERT INTO messages (id, session_id, role, content, tool_call_id,
                    tool_calls, tool_name, timestamp, token_count, finish_reason,
                    reasoning, reasoning_content, reasoning_details, codex_reasoning_items,

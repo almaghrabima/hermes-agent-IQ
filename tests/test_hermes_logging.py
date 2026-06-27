@@ -1,5 +1,4 @@
 """Tests for hermes_logging — centralized logging setup."""
-import io
 import logging
 import os
 import stat
@@ -468,7 +467,6 @@ class TestSessionContext:
         """Session context is per-thread — one thread's context doesn't leak."""
         hermes_logging.setup_logging(hermes_home=hermes_home)
 
-        results = {}
 
         def thread_a():
             hermes_logging.set_session_context("thread_a_session")
@@ -936,7 +934,7 @@ class TestExternalRotationRecovery:
             self._emit(handler, "AAAA" * 32)
             assert log_path.stat().st_size > 0
 
-            with open(log_path, "w"):
+            with open(log_path, "w", encoding="utf-8"):
                 pass  # truncate to zero
             assert log_path.stat().st_size == 0
 

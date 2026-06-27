@@ -1001,7 +1001,6 @@ const UserMessage: FC<{
   return (
     <MessagePrimitive.Root asChild>
       <StickyHumanMessageContainer
-        messageId={messageId}
         attachments={
           // Attachments live BELOW the sticky bubble in normal flow, so they
           // scroll away behind the pinned bubble instead of riding along with
@@ -1012,6 +1011,7 @@ const UserMessage: FC<{
             </div>
           ) : null
         }
+        messageId={messageId}
       >
         <ActionBarPrimitive.Root className="relative w-full max-w-full" data-slot="aui_user-bubble-actions">
           <div className="human-message-with-todos-wrapper flex w-full flex-col gap-0">

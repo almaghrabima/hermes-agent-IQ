@@ -75,6 +75,7 @@ export function PetBubble() {
   // it's actually the user's turn. Everything else maps to a mood spec.
   const specKey: null | PetState =
     state in SPECS ? state : state === 'idle' && activity.awaitingInput ? 'waiting' : null
+
   const rotating = specKey === 'run' || specKey === 'review'
 
   // Pick a fresh line on every mood change, then keep rotating (random, no

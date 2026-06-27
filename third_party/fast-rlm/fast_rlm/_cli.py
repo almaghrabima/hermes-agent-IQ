@@ -66,7 +66,7 @@ def main():
     if args.acp_agents:
         raw = args.acp_agents
         if raw.startswith("@"):
-            with open(raw[1:]) as f:
+            with open(raw[1:], encoding="utf-8") as f:
                 raw = f.read()
         config["acp_agents"] = json.loads(raw)
 
@@ -96,7 +96,7 @@ def main():
 
 
 def _print_stats(log_path: str):
-    with open(log_path) as f:
+    with open(log_path, encoding="utf-8") as f:
         entries = [json.loads(line) for line in f if line.strip()]
 
     if not entries:

@@ -28,7 +28,7 @@ class TestRecordNousRateLimit:
 
         path = _state_path()
         assert os.path.exists(path)
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             state = json.load(f)
         assert state["reset_seconds"] == pytest.approx(1800, abs=2)
         assert state["reset_at"] > time.time()
@@ -39,7 +39,7 @@ class TestRecordNousRateLimit:
         headers = {"x-ratelimit-reset-requests": "45"}
         record_nous_rate_limit(headers=headers)
 
-        with open(_state_path()) as f:
+        with open(_state_path(), encoding="utf-8") as f:
             state = json.load(f)
         assert state["reset_seconds"] == pytest.approx(45, abs=2)
 
@@ -49,7 +49,7 @@ class TestRecordNousRateLimit:
         headers = {"retry-after": "60"}
         record_nous_rate_limit(headers=headers)
 
-        with open(_state_path()) as f:
+        with open(_state_path(), encoding="utf-8") as f:
             state = json.load(f)
         assert state["reset_seconds"] == pytest.approx(60, abs=2)
 
@@ -62,7 +62,7 @@ class TestRecordNousRateLimit:
         }
         record_nous_rate_limit(headers=headers)
 
-        with open(_state_path()) as f:
+        with open(_state_path(), encoding="utf-8") as f:
             state = json.load(f)
         # Should use the hourly value, not the per-minute one
         assert state["reset_seconds"] == pytest.approx(1800, abs=2)
@@ -76,7 +76,7 @@ class TestRecordNousRateLimit:
             error_context={"reset_at": future_reset},
         )
 
-        with open(_state_path()) as f:
+        with open(_state_path(), encoding="utf-8") as f:
             state = json.load(f)
         assert state["reset_at"] == pytest.approx(future_reset, abs=1)
 
@@ -85,7 +85,7 @@ class TestRecordNousRateLimit:
 
         record_nous_rate_limit(headers=None)
 
-        with open(_state_path()) as f:
+        with open(_state_path(), encoding="utf-8") as f:
             state = json.load(f)
         # Default is 300 seconds (5 minutes)
         assert state["reset_seconds"] == pytest.approx(300, abs=2)
@@ -95,7 +95,7 @@ class TestRecordNousRateLimit:
 
         record_nous_rate_limit(headers=None, default_cooldown=120.0)
 
-        with open(_state_path()) as f:
+        with open(_state_path(), encoding="utf-8") as f:
             state = json.load(f)
         assert state["reset_seconds"] == pytest.approx(120, abs=2)
 
@@ -128,7 +128,7 @@ class TestNousRateLimitRemaining:
         # Write an already-expired state
         state_dir = os.path.dirname(_state_path())
         os.makedirs(state_dir, exist_ok=True)
-        with open(_state_path(), "w") as f:
+        with open(_state_path(), "w", encoding="utf-8") as f:
             json.dump({"reset_at": time.time() - 10, "recorded_at": time.time() - 100}, f)
 
         assert nous_rate_limit_remaining() is None
@@ -140,7 +140,7 @@ class TestNousRateLimitRemaining:
 
         state_dir = os.path.dirname(_state_path())
         os.makedirs(state_dir, exist_ok=True)
-        with open(_state_path(), "w") as f:
+        with open(_state_path(), "w", encoding="utf-8") as f:
             f.write("not valid json{{{")
 
         assert nous_rate_limit_remaining() is None

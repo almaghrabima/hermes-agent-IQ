@@ -236,34 +236,34 @@ class TestWriteFile:
         result = ops.write_file(path, SIMPLE_CONTENT)
         assert result.error is None
         assert result.bytes_written == len(SIMPLE_CONTENT.encode())
-        assert Path(path).read_text() == SIMPLE_CONTENT
+        assert Path(path).read_text(encoding="utf-8") == SIMPLE_CONTENT
 
     def test_creates_nested_dirs(self, ops, tmp_path):
         path = str(tmp_path / "a" / "b" / "c" / "deep.txt")
         result = ops.write_file(path, "DEEP_CONTENT\n")
         assert result.error is None
         assert result.dirs_created is True
-        assert Path(path).read_text() == "DEEP_CONTENT\n"
+        assert Path(path).read_text(encoding="utf-8") == "DEEP_CONTENT\n"
 
     def test_overwrites_exact(self, ops, tmp_path):
         path = str(tmp_path / "overwrite.txt")
-        Path(path).write_text("OLD_DATA\n")
+        Path(path).write_text("OLD_DATA\n", encoding="utf-8")
         result = ops.write_file(path, "NEW_DATA\n")
         assert result.error is None
-        assert Path(path).read_text() == "NEW_DATA\n"
+        assert Path(path).read_text(encoding="utf-8") == "NEW_DATA\n"
 
     def test_large_content_via_stdin(self, ops, tmp_path):
         path = str(tmp_path / "large.txt")
         content = "X" * 200_000 + "\n"
         result = ops.write_file(path, content)
         assert result.error is None
-        assert Path(path).read_text() == content
+        assert Path(path).read_text(encoding="utf-8") == content
 
     def test_special_characters_preserved(self, ops, tmp_path):
         path = str(tmp_path / "special.txt")
         result = ops.write_file(path, SPECIAL_CONTENT)
         assert result.error is None
-        assert Path(path).read_text() == SPECIAL_CONTENT
+        assert Path(path).read_text(encoding="utf-8") == SPECIAL_CONTENT
 
     def test_roundtrip_read_write(self, ops, tmp_path):
         """Write -> read back -> verify exact match."""
@@ -281,24 +281,24 @@ class TestWriteFile:
 class TestPatchReplace:
     def test_exact_replacement(self, ops, tmp_path):
         path = str(tmp_path / "patch.txt")
-        Path(path).write_text("hello world\n")
+        Path(path).write_text("hello world\n", encoding="utf-8")
         result = ops.patch_replace(path, "world", "earth")
         assert result.error is None
-        assert Path(path).read_text() == "hello earth\n"
+        assert Path(path).read_text(encoding="utf-8") == "hello earth\n"
 
     def test_not_found_error(self, ops, tmp_path):
         path = str(tmp_path / "patch2.txt")
-        Path(path).write_text("hello\n")
+        Path(path).write_text("hello\n", encoding="utf-8")
         result = ops.patch_replace(path, "NONEXISTENT_STRING", "replacement")
         assert result.error is not None
         assert "Could not find" in result.error
 
     def test_multiline_patch(self, ops, tmp_path):
         path = str(tmp_path / "multi.txt")
-        Path(path).write_text("line1\nline2\nline3\n")
+        Path(path).write_text("line1\nline2\nline3\n", encoding="utf-8")
         result = ops.patch_replace(path, "line2", "REPLACED")
         assert result.error is None
-        assert Path(path).read_text() == "line1\nREPLACED\nline3\n"
+        assert Path(path).read_text(encoding="utf-8") == "line1\nREPLACED\nline3\n"
 
 
 # ── search ───────────────────────────────────────────────────────────────

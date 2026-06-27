@@ -423,7 +423,7 @@ def config_from_args(args) -> RLMConfig:
     if getattr(args, "acp_agents", None):
         raw = args.acp_agents
         if raw.startswith("@"):
-            with open(raw[1:]) as f:
+            with open(raw[1:], encoding="utf-8") as f:
                 raw = f.read()
         cfg.acp_agents = json.loads(raw)
     return cfg

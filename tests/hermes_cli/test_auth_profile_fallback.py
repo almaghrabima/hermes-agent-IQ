@@ -47,7 +47,7 @@ def profile_env(tmp_path, monkeypatch):
 
 
 def _write(path: Path, payload: dict) -> None:
-    path.write_text(json.dumps(payload, indent=2))
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

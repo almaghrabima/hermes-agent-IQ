@@ -169,9 +169,6 @@ _COMMAND_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧
 # User-managed env files should override stale shell exports on restart.
 from hermes_constants import get_hermes_home, display_hermes_home
 from hermes_cli.browser_connect import (
-    DEFAULT_BROWSER_CDP_URL,
-    is_browser_debug_ready,
-    manual_chrome_debug_command,
     try_launch_chrome_debug,
 )
 from hermes_cli.env_loader import load_hermes_dotenv
@@ -10406,7 +10403,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             # Print stacked scrollback line for "all" / "new" modes
             if function_name and self.tool_progress_mode in {"all", "new"}:
                 duration = kwargs.get("duration", 0.0)
-                is_error = kwargs.get("is_error", False)
+                kwargs.get("is_error", False)
                 # Pop stored args from tool.started for this function
                 stored = self._pending_tool_info.get(function_name)
                 stored_args = stored.pop(0) if stored else {}

@@ -4158,7 +4158,6 @@ class TestProbeGatewayHealth:
         # Both paths should fail (no server), but we verify they were constructed
         # correctly by checking the URLs attempted.
         calls = []
-        original_urlopen = ws.urllib.request.urlopen
 
         def mock_urlopen(req, **kwargs):
             calls.append(req.full_url)

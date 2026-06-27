@@ -2623,7 +2623,7 @@ class TestMatrixEncryptedEventHandler:
         # Verify event handlers were registered.
         # In mautrix the order is: add_event_handler(EventType, callback)
         handler_calls = mock_client.add_event_handler.call_args_list
-        registered_types = [call.args[0] for call in handler_calls]
+        [call.args[0] for call in handler_calls]
 
         # Should have registered handlers for ROOM_MESSAGE, REACTION, INVITE
         assert len(handler_calls) >= 3

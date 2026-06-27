@@ -163,7 +163,7 @@ class TestUpdateCwdRejectsMissingPaths:
         # Simulate the stale-marker case: the prior command's ``pwd -P`` left
         # a path in the cwd file, but that path has since been deleted.
         deleted = tmp_path / "wedge-repro"
-        with open(env._cwd_file, "w") as f:
+        with open(env._cwd_file, "w", encoding="utf-8") as f:
             f.write(str(deleted))
 
         env._update_cwd({"output": "", "returncode": 0})
@@ -179,7 +179,7 @@ class TestUpdateCwdRejectsMissingPaths:
         with patch.object(LocalEnvironment, "init_session", autospec=True, return_value=None):
             env = LocalEnvironment(cwd=str(original), timeout=10)
 
-        with open(env._cwd_file, "w") as f:
+        with open(env._cwd_file, "w", encoding="utf-8") as f:
             f.write(str(new_dir))
 
         env._update_cwd({"output": "", "returncode": 0})

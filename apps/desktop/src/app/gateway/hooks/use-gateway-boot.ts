@@ -40,6 +40,8 @@ import {
 } from '@/store/session'
 import type { RpcEvent } from '@/types/hermes'
 
+const RECOVERABLE_RECONNECT_ATTEMPTS = 6
+
 interface GatewayBootOptions {
   handleGatewayEvent: (event: RpcEvent) => void
   onConnectionReady: (
@@ -166,6 +168,11 @@ export function useGatewayBoot({
         if (!cancelled && isGatewayReauthRequired(err) && !reauthNotified) {
           reauthNotified = true
           notifyError(err, translateNow('boot.errors.gatewaySignInRequired'))
+        }
+
+        if (!cancelled && !isGatewayReauthRequired(err) && reconnectAttempt >= RECOVERABLE_RECONNECT_ATTEMPTS) {
+          const message = err instanceof Error ? err.message : String(err)
+          failDesktopBoot(message)
         }
       } finally {
         reconnecting = false
@@ -359,10 +366,12 @@ export function useGatewayBoot({
         })
         await ensureDefaultWorkspaceCwd()
         const remoteDefault = await desktopDefaultCwd().catch(() => null)
+
         if (remoteDefault?.cwd && !$activeSessionId.get() && !$currentCwd.get()) {
           setCurrentCwd(remoteDefault.cwd)
           setCurrentBranch(remoteDefault.branch || '')
         }
+
         await callbacksRef.current.refreshHermesConfig()
 
         if (cancelled) {

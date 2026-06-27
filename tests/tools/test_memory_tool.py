@@ -602,7 +602,7 @@ class TestExternalDriftGuard:
         # Backup exists with the drifted content.
         bak = result["drift_backup"]
         assert Path(bak).exists()
-        assert "Vendor Master" in Path(bak).read_text()
+        assert "Vendor Master" in Path(bak).read_text(encoding="utf-8")
 
     def test_add_refuses_on_drift(self, store):
         store.add("memory", "Existing.")

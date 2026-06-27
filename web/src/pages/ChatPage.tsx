@@ -821,7 +821,15 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         copyResetRef.current = null;
       }
     };
-  }, [channel, resumeParam, scopedProfile, reconnectNonce]);
+  }, [
+    channel,
+    reconnectNonce,
+    resumeParam,
+    scopedProfile,
+    searchParams,
+    setSearchParams,
+    terminalTheme,
+  ]);
 
   // When the user returns to the chat tab (isActive: false → true), the
   // terminal host just transitioned from display:none to display:flex.

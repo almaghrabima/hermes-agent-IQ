@@ -1,5 +1,5 @@
 # tests/plugins/temporal/test_phase4a_integration.py
-import uuid, asyncio
+import uuid
 import pytest
 pytest.importorskip("temporalio")
 from temporalio.testing import WorkflowEnvironment

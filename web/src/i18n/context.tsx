@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- The provider and its typed hooks form one public context module. */
 import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
 import type { Locale, Translations } from "./types";
 import { en } from "./en";

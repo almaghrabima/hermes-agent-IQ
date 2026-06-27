@@ -1,4 +1,3 @@
-import json
 from plugins.temporal import outbox
 
 def test_record_and_claim_marks_delivered(tmp_path, monkeypatch):

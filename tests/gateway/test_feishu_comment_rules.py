@@ -208,7 +208,7 @@ class TestMtimeCache(unittest.TestCase):
         self.assertEqual(cache.load(), {})
 
     def test_reads_file_and_caches(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        with tempfile.NamedTemporaryFile(encoding="utf-8", mode="w", suffix=".json", delete=False) as f:
             json.dump({"key": "value"}, f)
             f.flush()
             path = Path(f.name)
@@ -223,7 +223,7 @@ class TestMtimeCache(unittest.TestCase):
             path.unlink()
 
     def test_reloads_on_mtime_change(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        with tempfile.NamedTemporaryFile(encoding="utf-8", mode="w", suffix=".json", delete=False) as f:
             json.dump({"v": 1}, f)
             f.flush()
             path = Path(f.name)
@@ -232,7 +232,7 @@ class TestMtimeCache(unittest.TestCase):
             self.assertEqual(cache.load(), {"v": 1})
             # Modify file
             time.sleep(0.05)
-            with open(path, "w") as f2:
+            with open(path, "w", encoding="utf-8") as f2:
                 json.dump({"v": 2}, f2)
             # Force mtime change detection
             os.utime(path, (time.time() + 1, time.time() + 1))
@@ -252,7 +252,7 @@ class TestLoadConfig(unittest.TestCase):
                 "docx:abc": {"policy": "allowlist", "allow_from": ["ou_b"]},
             },
         }
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        with tempfile.NamedTemporaryFile(encoding="utf-8", mode="w", suffix=".json", delete=False) as f:
             json.dump(raw, f)
             path = Path(f.name)
         try:
@@ -281,7 +281,7 @@ class TestPairingStore(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp()
         self._pairing_file = Path(self._tmpdir) / "pairing.json"
-        with open(self._pairing_file, "w") as f:
+        with open(self._pairing_file, "w", encoding="utf-8") as f:
             json.dump({"approved": {}}, f)
         self._patcher_file = patch("plugins.platforms.feishu.feishu_comment_rules.PAIRING_FILE", self._pairing_file)
         self._patcher_cache = patch(

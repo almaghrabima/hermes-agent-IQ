@@ -54,9 +54,27 @@ export default function PluginsPage() {
   }, [showToast, t.common.loading]);
 
   useEffect(() => {
+    // This effect owns the loading lifecycle for the plugin catalog request.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     void loadHub().finally(() => setLoading(false));
   }, [loadHub]);
+
+  const onRescan = useCallback(async () => {
+    setRescanBusy(true);
+    try {
+      const rc = await api.rescanPlugins();
+      showToast(
+        `${t.pluginsPage.refreshDashboard} (${rc.count})`,
+        "success",
+      );
+      await loadHub();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Rescan failed", "error");
+    } finally {
+      setRescanBusy(false);
+    }
+  }, [loadHub, showToast, t.pluginsPage.refreshDashboard]);
 
   useEffect(() => {
     setAfterTitle(
@@ -72,7 +90,7 @@ export default function PluginsPage() {
       </Button>,
     );
     return () => setAfterTitle(null);
-  }, [loading, rescanBusy, setAfterTitle, t.pluginsPage.refreshDashboard]);
+  }, [loading, onRescan, rescanBusy, setAfterTitle, t.pluginsPage.refreshDashboard]);
 
   const onInstall = async () => {
     const id = installId.trim();
@@ -97,22 +115,6 @@ export default function PluginsPage() {
       showToast(e instanceof Error ? e.message : "Install failed", "error");
     } finally {
       setInstallBusy(false);
-    }
-  };
-
-  const onRescan = async () => {
-    setRescanBusy(true);
-    try {
-      const rc = await api.rescanPlugins();
-      showToast(
-        `${t.pluginsPage.refreshDashboard} (${rc.count})`,
-        "success",
-      );
-      await loadHub();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Rescan failed", "error");
-    } finally {
-      setRescanBusy(false);
     }
   };
 

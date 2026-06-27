@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import sys
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 
@@ -293,7 +292,7 @@ class TestDispatch:
     def test_capture_after_fires_when_action_succeeds(self, noop_backend):
         """capture_after must trigger for successful actions."""
         from tools.computer_use.tool import handle_computer_use
-        out = handle_computer_use({"action": "click", "element": 1,
+        handle_computer_use({"action": "click", "element": 1,
                                    "capture_after": True})
         # Noop backend returns ok=True, so capture should have been called.
         capture_calls = [c for c in noop_backend.calls if c[0] == "capture"]
@@ -1517,7 +1516,7 @@ class TestCaptureAppFilterNoMatch:
              "structuredContent": None},
         ]
 
-        cap = backend.capture(mode="ax", app="計算機")
+        backend.capture(mode="ax", app="計算機")
 
         assert backend._active_pid == 200
         assert backend._active_window_id == 2
@@ -1537,7 +1536,7 @@ class TestCaptureAppFilterNoMatch:
              "structuredContent": None},
         ]
 
-        cap = backend.capture(mode="ax", app=None)
+        backend.capture(mode="ax", app=None)
 
         assert backend._active_pid == 100
 
@@ -2522,7 +2521,7 @@ class TestSessionLifecycle:
         assert args["session"] == backend._session_id
 
     def test_stop_invokes_end_session_before_disconnect(self):
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
         from tools.computer_use.cua_backend import CuaDriverBackend
 
         backend = CuaDriverBackend()
@@ -2846,7 +2845,7 @@ class TestCuaToolCoverageExpansion:
 
     def test_call_tool_passthrough(self):
         backend = self._backend(structured={"x": 1})
-        out = backend.call_tool("future_tool_name", {"arbitrary": "args"})
+        backend.call_tool("future_tool_name", {"arbitrary": "args"})
         name, args = backend._session.call_tool.call_args.args
         assert name == "future_tool_name"
         assert args["arbitrary"] == "args"

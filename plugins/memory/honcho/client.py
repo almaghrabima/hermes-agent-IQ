@@ -816,7 +816,7 @@ def get_honcho_client(config: HonchoClientConfig | None = None) -> Honcho:
         # the original ImportError-shape message so existing callers still get
         # the "go run hermes honcho setup" hint they used to.
         try:
-            from tools.lazy_deps import FeatureUnavailable, ensure as _lazy_ensure
+            from tools.lazy_deps import ensure as _lazy_ensure
             _lazy_ensure("memory.honcho", prompt=False)
         except ImportError:
             # lazy_deps module missing — fall through to the raw import below.

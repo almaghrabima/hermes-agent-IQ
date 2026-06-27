@@ -4,7 +4,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from hermes_constants import get_hermes_home
 
 _lock = threading.Lock()

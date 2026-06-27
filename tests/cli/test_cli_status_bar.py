@@ -1,7 +1,7 @@
 import time
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import cli as cli_mod
 from cli import HermesCLI
@@ -607,7 +607,7 @@ class TestStatusBarWidthSource:
         mock_app = MagicMock()
         mock_app.output.get_size.return_value = MagicMock(columns=120)
 
-        with patch("prompt_toolkit.application.get_app", return_value=mock_app) as mock_get_app, \
+        with patch("prompt_toolkit.application.get_app", return_value=mock_app), \
              patch("shutil.get_terminal_size") as mock_shutil:
             cli_obj._get_status_bar_fragments()
 
