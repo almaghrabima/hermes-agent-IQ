@@ -39,6 +39,8 @@ _RLM_CONFIG_DEFAULTS = {
     "kernel_image": None,
     "kernel_network": None,
     "durable_max_attempts": 2,
+    "llm_mode": "auto",          # auto | api | coding_agent
+    "coding_agent": "openai-codex",
 }
 
 
