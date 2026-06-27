@@ -240,6 +240,38 @@ class TestWebServerEndpoints:
         self.client = TestClient(app)
         self.client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
 
+    def test_fs_read_text_confined_to_locked_root_in_hosted_mode(self, monkeypatch, tmp_path):
+        """In hosted mode (locked_root set) /api/fs/* must reject out-of-root paths.
+
+        Mirrors the /api/files/* confinement so an authenticated hosted user
+        cannot read host secrets (.env, /etc/passwd, SSH keys) via /api/fs.
+        """
+        root = tmp_path / "data"
+        root.mkdir()
+        inside = root / "ok.txt"
+        inside.write_text("inside-root", encoding="utf-8")
+        outside = tmp_path / "secret.env"
+        outside.write_text("API_KEY=super-secret", encoding="utf-8")
+
+        monkeypatch.setenv("HERMES_DASHBOARD_FILES_ROOT", str(root))
+
+        ok = self.client.get("/api/fs/read-text", params={"path": str(inside)})
+        assert ok.status_code == 200
+        assert ok.json()["text"] == "inside-root"
+
+        for endpoint in ("/api/fs/read-text", "/api/fs/read-data-url", "/api/fs/list", "/api/fs/git-root"):
+            blocked = self.client.get(endpoint, params={"path": str(outside)})
+            assert blocked.status_code == 403, f"{endpoint} leaked an out-of-root path"
+
+    def test_fs_read_text_unconfined_without_locked_root(self, tmp_path):
+        """Local/desktop mode (no locked_root) keeps unrestricted browsing."""
+        target = tmp_path / "anywhere.txt"
+        target.write_text("local-read", encoding="utf-8")
+
+        resp = self.client.get("/api/fs/read-text", params={"path": str(target)})
+        assert resp.status_code == 200
+        assert resp.json()["text"] == "local-read"
+
     def test_get_status(self):
         resp = self.client.get("/api/status")
         assert resp.status_code == 200

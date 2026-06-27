@@ -1133,6 +1133,22 @@ def _fs_path(raw_path: str) -> Path:
         raise HTTPException(status_code=400, detail="Invalid path")
 
 
+def _fs_confine(target: Path, request: Request) -> Path:
+    """Confine an ``/api/fs/*`` path to the managed-files root when one is set.
+
+    Mirrors the ``/api/files/*`` confinement (``_resolve_managed_path``):
+    ``locked_root`` is only populated for hosted (``/opt/data``) or
+    ``HERMES_DASHBOARD_FILES_ROOT`` installs, so loopback/desktop dashboards keep
+    unrestricted browsing while a gated/hosted deployment cannot read host files
+    (``.env`` secrets, ``/etc/passwd``, SSH keys) outside its data root.
+    """
+    policy = _managed_files_policy(request, create_root=False)
+    root = policy.locked_root
+    if root is not None and not _path_is_under(root, target):
+        raise HTTPException(status_code=403, detail="Path is outside the permitted root")
+    return target
+
+
 def _fs_mime_type(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix in _FS_MIME_TYPES:
@@ -1707,8 +1723,8 @@ async def delete_managed_file(payload: ManagedFileDelete, request: Request):
 
 
 @app.get("/api/fs/list")
-async def fs_list(path: str):
-    target = _fs_path(path)
+async def fs_list(path: str, request: Request):
+    target = _fs_confine(_fs_path(path), request)
     try:
         entries = []
         with os.scandir(target) as scan:
@@ -1733,8 +1749,8 @@ async def fs_list(path: str):
 
 
 @app.get("/api/fs/read-text")
-async def fs_read_text(path: str):
-    target, st = _fs_regular_file(_fs_path(path))
+async def fs_read_text(path: str, request: Request):
+    target, st = _fs_regular_file(_fs_confine(_fs_path(path), request))
     if st.st_size > _FS_TEXT_SOURCE_MAX_BYTES:
         raise HTTPException(status_code=413, detail="File too large")
     bytes_to_read = min(st.st_size, _FS_TEXT_PREVIEW_MAX_BYTES)
@@ -1757,8 +1773,8 @@ async def fs_read_text(path: str):
 
 
 @app.get("/api/fs/read-data-url")
-async def fs_read_data_url(path: str):
-    target, st = _fs_regular_file(_fs_path(path))
+async def fs_read_data_url(path: str, request: Request):
+    target, st = _fs_regular_file(_fs_confine(_fs_path(path), request))
     if st.st_size > _FS_DATA_URL_MAX_BYTES:
         raise HTTPException(status_code=413, detail="File too large")
     try:
@@ -1771,8 +1787,8 @@ async def fs_read_data_url(path: str):
 
 
 @app.get("/api/fs/git-root")
-async def fs_git_root(path: str):
-    target = _fs_path(path)
+async def fs_git_root(path: str, request: Request):
+    target = _fs_confine(_fs_path(path), request)
     try:
         st = target.stat()
         start = target if stat.S_ISDIR(st.st_mode) else target.parent
