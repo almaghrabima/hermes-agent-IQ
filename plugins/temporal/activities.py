@@ -157,12 +157,15 @@ def _make_activities():
         return await _a.to_thread(_fire)
 
     @activity.defn(name="run_kanban_worker")
-    async def run_kanban_worker_activity(payload: dict) -> dict:
+    def run_kanban_worker_activity(payload: dict) -> dict:
+        # SYNC activity (runs in the worker's activity_executor thread pool): the
+        # poll loop blocks and calls activity.heartbeat() from its own thread.
+        # temporalio only makes heartbeat thread-safe for *sync* activities — an
+        # async activity heartbeating from an asyncio.to_thread thread raises
+        # "no running event loop" (see _activity.py heartbeat setup). The worker
+        # MUST be constructed with an activity_executor for this to run.
         import time as _t
-        return await asyncio.to_thread(
-            _make_run_kanban_worker(heartbeat=activity.heartbeat, sleep=_t.sleep),
-            payload,
-        )
+        return _make_run_kanban_worker(heartbeat=activity.heartbeat, sleep=_t.sleep)(payload)
 
     @activity.defn(name="reap_failed_kanban_worker")
     async def reap_failed_kanban_worker_activity(payload: dict) -> str:

@@ -17,6 +17,10 @@ class TemporalSettings:
     step_timeout_seconds: int = 600
     retry: dict = field(default_factory=lambda: dict(_DEFAULT_RETRY))
     api_key: Optional[str] = None
+    # Thread-pool size for SYNC activities (e.g. run_kanban_worker, which blocks
+    # in a subprocess poll loop). Caps how many durable kanban workers run
+    # concurrently on one worker process.
+    activity_executor_max_workers: int = 32
 
 
 def resolve_temporal_config(config: Optional[dict] = None, env: Optional[dict] = None) -> TemporalSettings:
@@ -36,4 +40,5 @@ def resolve_temporal_config(config: Optional[dict] = None, env: Optional[dict] =
         step_timeout_seconds=int(t.get("step_timeout_seconds", 600)),
         retry=retry,
         api_key=env.get("TEMPORAL_API_KEY"),
+        activity_executor_max_workers=int(t.get("activity_executor_max_workers", 32)),
     )

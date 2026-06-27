@@ -28,26 +28,31 @@ async def test_rlm_workflow_runs_and_delivers(monkeypatch, tmp_path):
         lambda **kw: '{"status":"success","result":"DURABLE-ANSWER","usage":{},"log_path":""}',
     )
 
+    import concurrent.futures
     WF = _make_rlm_run_workflow()
     async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue="tq",
-            workflows=[WF],
-            activities=A._make_activities(),
-        ):
-            result = await env.client.execute_workflow(
-                "RlmRunWorkflow",
-                {
-                    "rlm_args": {"query": "q"},
-                    "session_key": "sess-e2e",
-                    "run_id": "durable-rlm-e2e",
-                    "max_attempts": 2,
-                    "timeout_seconds": 30,
-                },
-                id="durable-rlm-e2e",
+        # _make_activities() now includes a SYNC activity (run_kanban_worker), so
+        # the Worker requires an activity_executor.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            async with Worker(
+                env.client,
                 task_queue="tq",
-            )
+                workflows=[WF],
+                activities=A._make_activities(),
+                activity_executor=pool,
+            ):
+                result = await env.client.execute_workflow(
+                    "RlmRunWorkflow",
+                    {
+                        "rlm_args": {"query": "q"},
+                        "session_key": "sess-e2e",
+                        "run_id": "durable-rlm-e2e",
+                        "max_attempts": 2,
+                        "timeout_seconds": 30,
+                    },
+                    id="durable-rlm-e2e",
+                    task_queue="tq",
+                )
     assert result["status"] == "completed"
     assert result["block"]["summary"] == "DURABLE-ANSWER"
     # It landed in the outbox and drains to the originating session.
