@@ -140,6 +140,26 @@ def _resolve_rlm_credentials(rlm_cfg: dict) -> RlmCreds:
     return RlmCreds(base_url=base_url, api_key=api_key, primary_agent=primary, sub_agent=sub)
 
 
+def _resolve_coding_agent_model(rlm_cfg: dict, config: dict) -> str:
+    """Model id for coding-agent mode: rlm.primary_agent override, else the
+    main setup model (config["model"]["default"])."""
+    primary = (rlm_cfg.get("primary_agent") or "").strip()
+    if primary:
+        return primary
+    return str((config.get("model") or {}).get("default", "") or "").strip()
+
+
+def _codex_authenticated(model: str) -> bool:
+    """True when the Codex (openai-codex) OAuth connection is usable. Reuses
+    auxiliary_client's builder, which returns (None, None) without a token."""
+    try:
+        from agent.auxiliary_client import _build_codex_client
+        client, _ = _build_codex_client(model or "gpt-5.5")
+        return client is not None
+    except Exception:  # noqa: BLE001 — treat any resolution failure as unauthenticated
+        return False
+
+
 def _deno_available() -> bool:
     """True when the Deno runtime (required by fast-rlm) is on PATH."""
     return shutil.which("deno") is not None
@@ -282,6 +302,10 @@ def rlm_tool(query, context=None, input_path=None, primary_agent=None,
         if max_global_calls is not None:
             rlm_cfg["max_global_calls"] = max_global_calls
 
+        config = load_config_readonly()
+        from tools.rlm.llm_modes import resolve_rlm_llm_mode
+        mode = resolve_rlm_llm_mode(rlm_cfg, config)
+
         env, env_type = _get_or_create_env(task_id or "default")
         if env_type in _CLOUD_BACKENDS and not rlm_cfg.get("allow_remote_backends"):
             raise RlmError(
@@ -296,13 +320,19 @@ def rlm_tool(query, context=None, input_path=None, primary_agent=None,
                 "backend would require docker-in-docker, which is not supported yet."
             )
 
+        if mode == "coding_agent":
+            return _run_coding_agent_mode(
+                rlm_cfg, config, env, env_type, task_id or "default",
+                query=query, context=context, input_path=input_path,
+            )
+
         creds = _resolve_rlm_credentials(rlm_cfg)
         cfg = _build_rlm_cfg(query, creds, rlm_cfg, context_path=None, input_path=input_path)
         out = _run_rlm_in_env(
             env, env_type, task_id or "default", cfg, creds,
             context_text=context, timeout=rlm_cfg.get("timeout_seconds", 600),
         )
-        return json.dumps({"status": "success", **out}, ensure_ascii=False)
+        return json.dumps({"status": "success", "model_backend": "api", **out}, ensure_ascii=False)
     except RlmError as exc:
         return json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False)
     except Exception as exc:  # unexpected
@@ -384,3 +414,39 @@ def _run_rlm_in_env(env, env_type, task_id, cfg, creds: RlmCreds, context_text, 
     if "error" in parsed:
         raise RlmError(parsed["error"])
     return parsed
+
+
+def _run_coding_agent_mode(rlm_cfg, config, env, env_type, task_id, *, query, context, input_path) -> str:
+    """Run fast-rlm with its model calls routed through a coding agent (Codex)
+    via the local shim. Local backend only — the shim is on the Hermes host."""
+    from tools.rlm.llm_proxy import RlmCodingAgentProxy
+
+    agent = str(rlm_cfg.get("coding_agent", "openai-codex") or "openai-codex").strip()
+    if env_type != "local":
+        raise RlmError(
+            f"rlm coding_agent mode runs the model shim on localhost and requires the local "
+            f"backend, but the active backend is '{env_type}'. Switch to the local backend or "
+            "set rlm.llm_mode: api."
+        )
+    model = _resolve_coding_agent_model(rlm_cfg, config)
+    if not model:
+        raise RlmError(
+            "rlm coding_agent mode needs a model. Set rlm.primary_agent or a main model in config.yaml."
+        )
+    if not _codex_authenticated(model):
+        raise RlmError(
+            f"rlm coding_agent mode requires the '{agent}' coding agent to be authenticated. "
+            "Run `hermes setup` to connect it, or set rlm.llm_mode: api to use a direct API key."
+        )
+
+    with RlmCodingAgentProxy(provider=agent, model=model) as proxy:
+        creds = RlmCreds(
+            base_url=proxy.url, api_key=proxy.token,
+            primary_agent=model, sub_agent=(rlm_cfg.get("sub_agent") or model),
+        )
+        cfg = _build_rlm_cfg(query, creds, rlm_cfg, context_path=None, input_path=input_path)
+        out = _run_rlm_in_env(
+            env, env_type, task_id, cfg, creds,
+            context_text=context, timeout=rlm_cfg.get("timeout_seconds", 600),
+        )
+    return json.dumps({"status": "success", "model_backend": f"coding_agent:{agent}", **out}, ensure_ascii=False)
