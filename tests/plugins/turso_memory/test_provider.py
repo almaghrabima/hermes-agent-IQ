@@ -148,3 +148,45 @@ def test_queue_prefetch_then_prefetch_returns_block(tmp_path, monkeypatch):
     block = p.prefetch("what editor does the user prefer", session_id="s2")
     assert "vim" in block, f"Expected 'vim' in prefetch block, got: {block!r}"
     p.shutdown()
+
+
+def test_schema_exposes_learning_loop_actions(tmp_path, monkeypatch):
+    p = _provider(tmp_path, monkeypatch)
+    actions = set(p.get_tool_schemas()[0]["parameters"]["properties"]["action"]["enum"])
+    assert actions == {"remember", "report", "recall", "rate", "forget"}
+    assert "feedback" not in actions
+    p.shutdown()
+
+
+def test_report_stores_learning_with_project(tmp_path, monkeypatch):
+    p = _provider(tmp_path, monkeypatch)
+    mid = json.loads(p.handle_tool_call("memory", {"action": "report", "content": "prefer uv over pip"}))["id"]
+    row = p._store.get(mid)
+    assert row["kind"] == "learning"
+    assert row["project"] == p._project   # provider stamped the active project (may be None, but must match)
+    p.shutdown()
+
+
+def test_rate_updates_weight(tmp_path, monkeypatch):
+    p = _provider(tmp_path, monkeypatch)
+    good = json.loads(p.handle_tool_call("memory", {"action": "report", "content": "good learning alpha"}))["id"]
+    bad = json.loads(p.handle_tool_call("memory", {"action": "report", "content": "bad learning beta"}))["id"]
+    p.handle_tool_call("memory", {"action": "rate", "id": good, "score": 3})
+    p.handle_tool_call("memory", {"action": "rate", "id": bad, "score": 0})
+    assert p._store.get(good)["weight"] > 1.0 > p._store.get(bad)["weight"]
+    p.shutdown()
+
+
+def test_rate_rejects_out_of_range_score(tmp_path, monkeypatch):
+    p = _provider(tmp_path, monkeypatch)
+    mid = json.loads(p.handle_tool_call("memory", {"action": "report", "content": "x"}))["id"]
+    out = p.handle_tool_call("memory", {"action": "rate", "id": mid, "score": 9})
+    assert "error" in out.lower()
+    p.shutdown()
+
+
+def test_feedback_action_retired(tmp_path, monkeypatch):
+    p = _provider(tmp_path, monkeypatch)
+    out = p.handle_tool_call("memory", {"action": "feedback", "id": "x", "helpful": True})
+    assert "error" in out.lower()
+    p.shutdown()

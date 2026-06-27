@@ -10,9 +10,9 @@ from typing import Any, Dict, List
 from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
 
-from .store import TursoMemoryStore, builtin_source_key
+from .store import TursoMemoryStore, builtin_source_key, _now
 from .encoder import get_encoder, EncoderUnavailable
-from .retrieval import fuse_and_rank
+from .retrieval import final_rank
 
 logger = logging.getLogger(__name__)
 
@@ -20,20 +20,21 @@ MEMORY_TOOL_SCHEMA = {
     "type": "function",
     "name": "memory",
     "description": (
-        "Durable long-term memory with semantic recall. "
-        "action='remember' stores a fact; 'recall' searches by meaning; "
-        "'forget' removes by id or query; 'feedback' rates a recalled memory "
-        "(helpful/unhelpful) to train ranking."
+        "Durable long-term memory with semantic recall and a learning loop. "
+        "action='remember' stores a user-asserted fact; 'report' records a "
+        "learning/outcome (subject to rating + time-decay); 'recall' searches by "
+        "meaning; 'rate' scores a recalled memory 0-3 (3=very useful) to train "
+        "ranking; 'forget' removes by id or query."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["remember", "recall", "forget", "feedback"]},
-            "content": {"type": "string", "description": "fact text (remember)"},
+            "action": {"type": "string", "enum": ["remember", "report", "recall", "rate", "forget"]},
+            "content": {"type": "string", "description": "fact/learning text (remember/report)"},
             "query": {"type": "string", "description": "search text (recall/forget-by-query)"},
-            "id": {"type": "string", "description": "memory id (forget/feedback)"},
+            "id": {"type": "string", "description": "memory id (forget/rate)"},
             "k": {"type": "integer", "description": "max results (recall)", "default": 5},
-            "helpful": {"type": "boolean", "description": "rating (feedback)"},
+            "score": {"type": "integer", "description": "usefulness rating 0-3 (rate)"},
         },
         "required": ["action"],
     },
@@ -56,6 +57,12 @@ class TursoMemoryProvider(MemoryProvider):
         self._encoder = None
         self._encoder_failed = False
         self._session_id = ""
+        self._rating_alpha = float(self._config.get("rating_alpha", 0.3))
+        self._project_boost = float(self._config.get("project_boost", 0.1))
+        self._decay_rate = float(self._config.get("decay_rate", 0.98))
+        self._project: str | None = None
+        self._cwd: str | None = None
+        self._recalled_ids: set[str] = set()
         # Background prefetch state (I2: recall must not block the main turn loop)
         self._prefetch_lock = threading.Lock()
         self._prefetch_result: dict[str, str] = {}   # keyed by session_id
@@ -74,6 +81,8 @@ class TursoMemoryProvider(MemoryProvider):
         import os
 
         self._session_id = session_id
+        self._cwd = os.getcwd()
+        self._project = os.path.basename(self._cwd.rstrip("/")) or None
         sync = None
         sync_url = (self._config.get("sync_url") or "").strip()
         token = (os.environ.get("TURSO_AUTH_TOKEN") or "").strip()
@@ -107,6 +116,12 @@ class TursoMemoryProvider(MemoryProvider):
             logger.debug("turso_memory embed failed: %s", exc)
             self._encoder_failed = True
             return None, None
+
+    def _store_one(self, content: str, *, kind: str, source: str = "tool") -> str:
+        vec, model = self._embed(content)
+        return self._store.add(content, kind=kind, source=source,
+                               project=self._project, cwd=self._cwd,
+                               embedding=vec, embed_model=model)
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         return [MEMORY_TOOL_SCHEMA]
@@ -180,14 +195,20 @@ class TursoMemoryProvider(MemoryProvider):
         action = args.get("action")
         try:
             if action == "remember":
-                content = args["content"]
-                vec, model = self._embed(content)
-                mid = self._store.add(content, kind="fact", source="tool",
-                                      embedding=vec, embed_model=model)
+                mid = self._store_one(args["content"], kind="fact")
                 return json.dumps({"id": mid, "status": "stored"})
+            if action == "report":
+                mid = self._store_one(args["content"], kind="learning")
+                return json.dumps({"id": mid, "status": "reported"})
             if action == "recall":
                 results = self._recall(args.get("query", ""), int(args.get("k", 5)))
                 return json.dumps({"results": results})
+            if action == "rate":
+                score = int(args.get("score", -1))
+                if not 0 <= score <= 3:
+                    return tool_error("score must be an integer 0-3")
+                self._store.rate(args["id"], score, self._rating_alpha)
+                return json.dumps({"status": "ok", "id": args["id"]})
             if action == "forget":
                 if args.get("id"):
                     return json.dumps({"removed": self._store.remove(args["id"])})
@@ -195,9 +216,6 @@ class TursoMemoryProvider(MemoryProvider):
                 if hits:
                     return json.dumps({"removed": self._store.remove(hits[0]["id"]), "id": hits[0]["id"]})
                 return json.dumps({"removed": False})
-            if action == "feedback":
-                self._store.feedback(args["id"], bool(args.get("helpful", True)))
-                return json.dumps({"status": "ok"})
             return tool_error(f"unknown action: {action!r}")
         except KeyError as exc:
             return tool_error(f"missing argument: {exc}")
@@ -213,8 +231,14 @@ class TursoMemoryProvider(MemoryProvider):
         active_model = self._encoder.model_id if self._encoder else None
         vec_ids = self._store.vector_search(vec, limit=max(20, k * 4), embed_model=active_model) if vec else []
         rows = self._store.rows_for(set(fts_ids) | set(vec_ids))
-        ranked = fuse_and_rank(fts_ids, vec_ids, rows, k=k)
-        self._store.bump_recall([r["id"] for r in ranked])
+        now = _now()
+        ranked = final_rank(fts_ids, vec_ids, rows, k=k, now_iso=now,
+                            active_project=self._project,
+                            project_boost=self._project_boost,
+                            decay_rate=self._decay_rate)
+        ids = [r["id"] for r in ranked]
+        self._store.mark_used(ids, now)
+        self._recalled_ids.update(ids)
         return [{"id": r["id"], "content": r["content"], "score": round(r["_score"], 4)} for r in ranked]
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
@@ -356,6 +380,7 @@ class TursoMemoryProvider(MemoryProvider):
                           reset: bool = False, rewound: bool = False, **kwargs) -> None:
         self._session_id = new_session_id
         if reset and self._store:
+            self._recalled_ids.clear()
             self._reconcile_builtin()
 
     def _reindex(self) -> int:
