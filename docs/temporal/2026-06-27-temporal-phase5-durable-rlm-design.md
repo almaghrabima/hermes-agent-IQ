@@ -141,6 +141,25 @@ failed in the meantime. On startup, `reconcile_from_temporal` backfills any
 - **At-least-once delivery** is inherited from the Phase-2/3 rail (outbox rows are
   drained idempotently; reconcile skips rows already recorded).
 
+## Model backend: api vs coding_agent
+
+The rlm tool supports two LLM backend modes, selected via `rlm.llm_mode` in `config.yaml`:
+
+- **`api`** (default when `llm_mode: auto` and the active provider is not a coding agent):
+  Calls the configured LLM provider directly using the active Hermes credential.
+  Works in both sync (`rlm(durable=false)`) and durable (`rlm(durable=true)`) modes.
+
+- **`coding_agent`**: Routes the rlm LLM call through a local coding-agent proxy
+  (configured via `rlm.coding_agent`, e.g. `openai-codex`). The proxy is contacted
+  on a loopback URL and must be running on the **same host** as the rlm invocation.
+  **Local-backend-only constraint:** `coding_agent` mode cannot be used with remote
+  Hermes backends (ssh/modal/daytona); this mirrors the worker-locality limitation
+  above. When `llm_mode: auto`, the mode is resolved from the active provider config.
+
+In both modes the tool result JSON includes a `model_backend` field (e.g.
+`"api:claude-sonnet"` or `"coding_agent:openai-codex"`) surfacing which backend
+was used. The durable `_run_rlm_blocking` path passes this field through unchanged.
+
 ## Limitations (documented)
 
 - **Worker-locality.** `run_rlm_durable` runs rlm with the **local backend on the
