@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from agent.db_backend import connect
+from .weighting import ema_update, weight_from_ema
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,12 @@ CREATE TABLE IF NOT EXISTS memories (
     source_key    TEXT,
     embedding     F32_BLOB({dim}),
     embed_model   TEXT,
+    project       TEXT,
+    cwd           TEXT,
+    weight        REAL NOT NULL DEFAULT 1.0,
+    ema           REAL,
+    rating_count  INTEGER NOT NULL DEFAULT 0,
+    last_used_at  TEXT,
     trust_score   REAL NOT NULL DEFAULT 0.5,
     recall_count  INTEGER NOT NULL DEFAULT 0,
     helpful_count   INTEGER NOT NULL DEFAULT 0,
@@ -75,6 +82,7 @@ CREATE TABLE IF NOT EXISTS memories (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_source_key
     ON memories(source_key) WHERE source_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
     USING fts5(content, content='memories', content_rowid='rowid');
 CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
@@ -90,7 +98,8 @@ END;
 """
 
 _COLS = ("id", "content", "kind", "source", "source_key", "embed_model",
-         "trust_score", "created_at")
+         "trust_score", "project", "weight", "ema", "last_used_at",
+         "created_at")
 
 
 class TursoMemoryStore:
@@ -108,10 +117,27 @@ class TursoMemoryStore:
         )
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_schema(self.dim))
+        self._migrate()
+
+    def _migrate(self) -> None:
+        with self._lock:
+            cols = {r[1] for r in self._conn.execute("PRAGMA table_info(memories)").fetchall()}
+            adds = {
+                "project": "TEXT", "cwd": "TEXT",
+                "weight": "REAL NOT NULL DEFAULT 1.0", "ema": "REAL",
+                "rating_count": "INTEGER NOT NULL DEFAULT 0", "last_used_at": "TEXT",
+            }
+            for col, decl in adds.items():
+                if col not in cols:
+                    self._conn.execute(f"ALTER TABLE memories ADD COLUMN {col} {decl}")
+            idxs = {r[0] for r in self._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index'").fetchall()}
+            if "idx_memories_project" not in idxs:
+                self._conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project)")
 
     # ---- writes ----
     def add(self, content, *, kind="fact", source="tool", source_key=None,
-            embedding=None, embed_model=None) -> str:
+            project=None, cwd=None, embedding=None, embed_model=None) -> str:
         emb_sql = "vector32(?)" if embedding else "NULL"
         emb_params = (_vec_lit(embedding),) if embedding else ()
         with self._lock:
@@ -139,9 +165,9 @@ class TursoMemoryStore:
             mid = new_ulid()
             now = _now()
             self._conn.execute(
-                f"INSERT INTO memories (id, content, kind, source, source_key, embedding, "
-                f"embed_model, created_at, updated_at) VALUES (?,?,?,?,?,{emb_sql},?,?,?)",
-                (mid, content, kind, source, source_key, *emb_params, embed_model, now, now),
+                f"INSERT INTO memories (id, content, kind, source, source_key, project, cwd, "
+                f"embedding, embed_model, created_at, updated_at) VALUES (?,?,?,?,?,?,?,{emb_sql},?,?,?)",
+                (mid, content, kind, source, source_key, project, cwd, *emb_params, embed_model, now, now),
             )
             return mid
 
@@ -169,6 +195,29 @@ class TursoMemoryStore:
                 f"UPDATE memories SET recall_count = recall_count + 1 WHERE id IN ({qs})",
                 tuple(ids),
             )
+
+    def rate(self, mem_id, score: int, alpha: float) -> None:
+        with self._lock:
+            r = self._conn.execute("SELECT ema FROM memories WHERE id=?", (mem_id,)).fetchone()
+            if not r:
+                return
+            ema = ema_update(r["ema"], int(score), alpha)
+            self._conn.execute(
+                "UPDATE memories SET ema=?, weight=?, rating_count=rating_count+1, updated_at=? WHERE id=?",
+                (ema, weight_from_ema(ema), _now(), mem_id))
+
+    def mark_used(self, ids, now_iso) -> None:
+        if not ids:
+            return
+        with self._lock:
+            qs = ",".join("?" for _ in ids)
+            self._conn.execute(
+                f"UPDATE memories SET recall_count=recall_count+1, last_used_at=? WHERE id IN ({qs})",
+                (now_iso, *ids))
+
+    def prune(self, weight_floor: float) -> int:
+        with self._lock:
+            return self._conn.execute("DELETE FROM memories WHERE weight < ?", (weight_floor,)).rowcount or 0
 
     # ---- reads ----
     def get(self, mem_id) -> dict | None:

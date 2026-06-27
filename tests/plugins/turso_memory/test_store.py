@@ -139,3 +139,46 @@ def test_vector_search_model_filter_returns_matching_model_rows(tmp_path):
     assert mid in hits
     assert len(hits) == 1   # only the m3 row
     s.close()
+
+
+# ---------- ENH Task 2 — project scoping + ratings/EMA + decay-prune ----------
+
+def _ws(tmp_path):
+    return TursoMemoryStore(db_path=tmp_path / "m.db", dim=3, sync=None)
+
+
+def test_add_with_project_and_rows_for_exposes_weight(tmp_path):
+    s = _ws(tmp_path)
+    mid = s.add("p note", embedding=[1.0, 0.0, 0.0], embed_model="f/3", project="proj1", cwd="/tmp")
+    row = s.rows_for([mid])[mid]
+    assert row["project"] == "proj1" and row["weight"] == 1.0 and row["ema"] is None
+    s.close()
+
+
+def test_rate_updates_weight(tmp_path):
+    s = _ws(tmp_path)
+    g = s.add("good", embedding=[1.0, 0.0, 0.0], embed_model="f/3")
+    b = s.add("bad", embedding=[0.0, 1.0, 0.0], embed_model="f/3")
+    s.rate(g, 3, 0.5)
+    s.rate(b, 0, 0.5)
+    assert s.rows_for([g])[g]["weight"] > s.rows_for([b])[b]["weight"]
+    s.close()
+
+
+def test_mark_used_sets_last_used(tmp_path):
+    s = _ws(tmp_path)
+    mid = s.add("x", embedding=[1.0, 0.0, 0.0], embed_model="f/3")
+    s.mark_used([mid], "2026-02-02T00:00:00Z")
+    assert s.rows_for([mid])[mid]["last_used_at"] == "2026-02-02T00:00:00Z"
+    s.close()
+
+
+def test_prune_removes_low_weight(tmp_path):
+    s = _ws(tmp_path)
+    g = s.add("g", embedding=[1.0, 0.0, 0.0], embed_model="f/3")
+    b = s.add("b", embedding=[0.0, 1.0, 0.0], embed_model="f/3")
+    s.rate(g, 3, 1.0)   # weight 1.5
+    s.rate(b, 0, 1.0)   # weight 0.5
+    assert s.prune(weight_floor=0.6) == 1
+    assert s.get(b) is None and s.get(g) is not None
+    s.close()
