@@ -88,7 +88,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from hermes_cli.sqlite_util import add_column_if_missing as _add_column_if_missing
+from hermes_cli.sqlite_util import add_column_if_missing as _sqlite_add_column_if_missing
 from toolsets import get_toolset_names
 from hermes_cli.kanban_spawn_provider import resolve_kanban_spawn  # noqa: E402
 from agent.device_identity import get_device_id, next_id
@@ -1819,6 +1819,25 @@ def init_db(
     with contextlib.closing(connect(path)):
         pass
     return path
+
+
+def _add_column_if_missing(
+    conn: sqlite3.Connection, table: str, column: str, ddl: str
+) -> bool:
+    """``sqlite_util.add_column_if_missing`` plus tolerance for a missing table.
+
+    ``_migrate_add_optional_columns`` runs ALTERs on optional tables
+    (``task_comments``, ``task_attachments``) that legacy DBs may not have yet,
+    so a ``no such table`` is swallowed the same way ``duplicate column name``
+    is (the fork's #21708 hardening, which upstream's shared helper does not
+    carry). Returns ``True`` only when this call actually added the column.
+    """
+    try:
+        return _sqlite_add_column_if_missing(conn, table, column, ddl)
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).lower():
+            return False
+        raise
 
 
 def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
