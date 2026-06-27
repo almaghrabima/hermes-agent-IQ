@@ -274,13 +274,13 @@ def _check_database_backend(issues: list[str]) -> None:
         return
     check_ok(detail)
     if "turso" in detail.lower():
-        # Surface the embedded-replica conflict model so multi-device users
-        # know the failure mode before it bites. libsql sync is last-push-wins
-        # at row level: editing the SAME session on two devices at once can
-        # silently drop one device's messages. Safe with one active device.
-        check_warn(
-            "Turso sync is last-push-wins: editing the same session on two "
-            "devices at once can drop messages — safe with one active device."
+        # Writes are collision-free: synced rows use device-partitioned
+        # Snowflake ids (agent/device_identity.py), so concurrent appends from
+        # multiple devices never overwrite each other. Rare same-row edits
+        # resolve last-write-wins, which is acceptable at personal scale.
+        check_ok(
+            "Turso sync is collision-free (device-partitioned ids); "
+            "concurrent same-row edits resolve last-write-wins."
         )
 
 

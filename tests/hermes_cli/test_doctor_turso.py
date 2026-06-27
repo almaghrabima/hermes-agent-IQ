@@ -27,11 +27,12 @@ def test_status_flags_turso_missing_token(tmp_path, monkeypatch):
     assert "TURSO_AUTH_TOKEN" in detail
 
 
-def test_check_warns_about_multidevice_concurrency_when_turso_active(
+def test_check_reports_collision_free_when_turso_active(
     tmp_path, monkeypatch, capsys
 ):
-    """When the Turso backend is active, the doctor must surface the
-    last-push-wins / concurrent-same-session caveat to the user."""
+    """When the Turso backend is active, the doctor must report that sync is
+    collision-free (device-partitioned Snowflake ids) rather than the old
+    last-push-wins warning."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setenv("TURSO_AUTH_TOKEN", "tok-123")
     (tmp_path / "config.yaml").write_text(textwrap.dedent("""
@@ -42,8 +43,8 @@ def test_check_warns_about_multidevice_concurrency_when_turso_active(
     """), encoding="utf-8")
     _check_database_backend([])
     out = capsys.readouterr().out.lower()
-    assert "last-push-wins" in out
-    assert "device" in out
+    assert "collision-free" in out or "device-partitioned" in out
+    assert "drop" not in out
 
 
 def test_check_does_not_warn_on_sqlite_default(tmp_path, monkeypatch, capsys):

@@ -117,7 +117,7 @@ T = TypeVar("T")
 
 DEFAULT_DB_PATH = get_hermes_home() / "state.db"
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 # ---------------------------------------------------------------------------
 # WAL-compatibility fallback
@@ -555,6 +555,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     handoff_error TEXT,
     rewind_count INTEGER NOT NULL DEFAULT 0,
     archived INTEGER NOT NULL DEFAULT 0,
+    origin_device TEXT,
     FOREIGN KEY (parent_session_id) REFERENCES sessions(id)
 );
 
@@ -577,7 +578,8 @@ CREATE TABLE IF NOT EXISTS messages (
     platform_message_id TEXT,
     observed INTEGER DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1,
-    compacted INTEGER NOT NULL DEFAULT 0
+    compacted INTEGER NOT NULL DEFAULT 0,
+    origin_device TEXT
 );
 
 CREATE TABLE IF NOT EXISTS state_meta (
@@ -689,7 +691,7 @@ class SessionDB:
     _CHECKPOINT_EVERY_N_WRITES = 50
 
     def __init__(self, db_path: Path = None, read_only: bool = False):
-        self.db_path = db_path or DEFAULT_DB_PATH
+        self.db_path = Path(db_path) if db_path is not None else DEFAULT_DB_PATH
         self.read_only = read_only
 
         self._lock = threading.Lock()
@@ -2580,13 +2582,16 @@ class SessionDB:
             num_tool_calls = len(tool_calls) if isinstance(tool_calls, list) else 1
 
         def _do(conn):
+            from agent.device_identity import next_id as _next_id, get_device_id as _dev
+            new_id = _next_id()
             cursor = conn.execute(
-                """INSERT INTO messages (session_id, role, content, tool_call_id,
+                """INSERT INTO messages (id, session_id, role, content, tool_call_id,
                    tool_calls, tool_name, timestamp, token_count, finish_reason,
                    reasoning, reasoning_content, reasoning_details, codex_reasoning_items,
-                   codex_message_items, platform_message_id, observed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   codex_message_items, platform_message_id, observed, origin_device)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
+                    new_id,
                     session_id,
                     role,
                     stored_content,
@@ -2603,9 +2608,10 @@ class SessionDB:
                     codex_message_items_json,
                     platform_message_id,
                     1 if observed else 0,
+                    _dev(),
                 ),
             )
-            msg_id = cursor.lastrowid
+            msg_id = new_id
 
             # Update counters
             if num_tool_calls > 0:
@@ -2635,6 +2641,7 @@ class SessionDB:
         now_ts = time.time()
         inserted = 0
         tool_calls_total = 0
+        from agent.device_identity import next_id as _next_id, get_device_id as _dev
         for msg in messages:
             role = msg.get("role", "unknown")
             tool_calls = msg.get("tool_calls")
@@ -2672,12 +2679,13 @@ class SessionDB:
             )
 
             conn.execute(
-                """INSERT INTO messages (session_id, role, content, tool_call_id,
+                """INSERT INTO messages (id, session_id, role, content, tool_call_id,
                    tool_calls, tool_name, timestamp, token_count, finish_reason,
                    reasoning, reasoning_content, reasoning_details, codex_reasoning_items,
-                   codex_message_items, platform_message_id, observed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   codex_message_items, platform_message_id, observed, origin_device)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
+                    _next_id(),
                     session_id,
                     role,
                     self._encode_content(msg.get("content")),
@@ -2694,6 +2702,7 @@ class SessionDB:
                     codex_message_items_json,
                     platform_msg_id,
                     1 if msg.get("observed") else 0,
+                    _dev(),
                 ),
             )
             inserted += 1
