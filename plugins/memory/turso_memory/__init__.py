@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 from typing import Any, Dict, List
 
@@ -15,6 +16,39 @@ from .encoder import get_encoder, EncoderUnavailable
 from .retrieval import final_rank
 
 logger = logging.getLogger(__name__)
+
+_EXTRACT_SYSTEM = (
+    "You extract durable, reusable learnings from a conversation that would help "
+    "in FUTURE sessions: user/project preferences, decisions, facts, gotchas, or "
+    "working agreements. Most conversations yield 0-3 and many yield none. Ignore "
+    "ephemeral chit-chat and one-off task details. Return ONLY a JSON array of "
+    'short plain-string learnings, e.g. ["the user prefers uv over pip"]. '
+    "Return [] if nothing is worth keeping."
+)
+
+
+def _transcript(messages) -> str:
+    lines = []
+    for m in messages or []:
+        if m.get("role") not in ("user", "assistant"):
+            continue
+        c = m.get("content")
+        if isinstance(c, str) and c.strip():
+            lines.append(f"{m['role']}: {c.strip()}")
+    return "\n".join(lines)
+
+
+def _parse_learnings(raw: str) -> list[str]:
+    """Tolerantly pull a JSON string-array out of an LLM reply (handles ``` fences)."""
+    m = re.search(r"\[.*\]", raw or "", re.DOTALL)
+    if not m:
+        return []
+    try:
+        arr = json.loads(m.group(0))
+    except Exception:
+        return []
+    return [s.strip() for s in arr if isinstance(s, str) and s.strip()][:10]
+
 
 MEMORY_TOOL_SCHEMA = {
     "type": "function",
@@ -186,6 +220,32 @@ class TursoMemoryProvider(MemoryProvider):
                 "secret": False,
                 "required": False,
                 "default": "1536",
+            },
+            {
+                "key": "extract_on_session_end",
+                "description": (
+                    "Opt-in: at session end, use the auxiliary LLM to extract durable "
+                    "learnings from the conversation and store them (experimental)."
+                ),
+                "secret": False,
+                "required": False,
+                "default": "false",
+                "choices": ["true", "false"],
+            },
+            {
+                "key": "prune_on_session_end",
+                "description": "Opt-in: at session end, delete memories whose learned weight fell below prune_weight_floor.",
+                "secret": False,
+                "required": False,
+                "default": "false",
+                "choices": ["true", "false"],
+            },
+            {
+                "key": "prune_weight_floor",
+                "description": "Weight threshold for pruning (memories with weight < floor are deleted). 0.5 = the minimum a single 0-rating produces.",
+                "secret": False,
+                "required": False,
+                "default": "0.5",
             },
         ]
 
@@ -375,6 +435,44 @@ class TursoMemoryProvider(MemoryProvider):
             for row in rows:
                 if row["source_key"] not in wanted:
                     self._store.remove(row["id"])
+
+    def _extract_learnings(self, messages) -> list[str]:
+        from agent.auxiliary_client import call_llm
+        transcript = _transcript(messages)[-8000:]   # bound aux-model input
+        if not transcript:
+            return []
+        try:
+            resp = call_llm(
+                task="compression",
+                messages=[{"role": "system", "content": _EXTRACT_SYSTEM},
+                          {"role": "user", "content": transcript}],
+                max_tokens=400, temperature=0.0,
+            )
+            raw = resp.choices[0].message.content or ""
+        except Exception as exc:
+            logger.debug("turso_memory extraction LLM call failed: %s", exc)
+            return []
+        return _parse_learnings(raw)
+
+    def _prune(self) -> int:
+        if not self._store:
+            return 0
+        return self._store.prune(float(self._config.get("prune_weight_floor", 0.5)))
+
+    def on_session_end(self, messages) -> None:
+        if not self._store:
+            return
+        if self._config.get("extract_on_session_end"):
+            try:
+                for learning in self._extract_learnings(messages):
+                    self._store_one(learning, kind="learning", source="extracted")
+            except Exception as exc:
+                logger.debug("turso_memory session-end extraction failed: %s", exc)
+        if self._config.get("prune_on_session_end"):
+            try:
+                self._prune()
+            except Exception as exc:
+                logger.debug("turso_memory session-end prune failed: %s", exc)
 
     def on_session_switch(self, new_session_id: str, *, parent_session_id: str = "",
                           reset: bool = False, rewound: bool = False, **kwargs) -> None:

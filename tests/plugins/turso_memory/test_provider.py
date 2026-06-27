@@ -190,3 +190,65 @@ def test_feedback_action_retired(tmp_path, monkeypatch):
     out = p.handle_tool_call("memory", {"action": "feedback", "id": "x", "helpful": True})
     assert "error" in out.lower()
     p.shutdown()
+
+
+# ---------- Task 5: session-end extraction + prune + helper tests ----------
+
+class _FakeResp:
+    def __init__(self, content):
+        msg = type("M", (), {"content": content})()
+        self.choices = [type("C", (), {"message": msg})()]
+
+
+def test_parse_learnings_handles_fences_and_filters():
+    from plugins.memory.turso_memory import _parse_learnings
+    assert _parse_learnings('```json\n["a", "b"]\n```') == ["a", "b"]
+    assert _parse_learnings("no array here") == []
+    assert _parse_learnings('["x", 3, "  ", "y"]') == ["x", "y"]
+
+
+def test_transcript_keeps_only_user_and_assistant():
+    from plugins.memory.turso_memory import _transcript
+    t = _transcript([
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "yo"},
+        {"role": "tool", "content": "toolout"},
+    ])
+    assert "user: hi" in t and "assistant: yo" in t
+    assert "sys" not in t and "toolout" not in t
+
+
+def test_session_end_noop_by_default(tmp_path, monkeypatch):
+    import agent.auxiliary_client as aux
+    def _boom(**kw):
+        raise AssertionError("call_llm must not run when extraction is disabled")
+    monkeypatch.setattr(aux, "call_llm", _boom)
+    p = _provider(tmp_path, monkeypatch)
+    # no exception, no extraction, no prune
+    p.on_session_end([{"role": "user", "content": "hi"}, {"role": "assistant", "content": "ok"}])
+    p.shutdown()
+
+
+def test_session_end_extracts_when_enabled(tmp_path, monkeypatch):
+    import agent.auxiliary_client as aux
+    monkeypatch.setattr(aux, "call_llm",
+                        lambda **kw: _FakeResp('["the user prefers uv over pip"]'))
+    p = _provider(tmp_path, monkeypatch)
+    p._config["extract_on_session_end"] = True
+    p.on_session_end([{"role": "user", "content": "we use uv"},
+                      {"role": "assistant", "content": "noted"}])
+    out = json.loads(p.handle_tool_call("memory", {"action": "recall", "query": "uv", "k": 5}))
+    assert any("uv" in r["content"] for r in out["results"])
+    p.shutdown()
+
+
+def test_session_end_prunes_when_enabled(tmp_path, monkeypatch):
+    p = _provider(tmp_path, monkeypatch)
+    p._config["prune_on_session_end"] = True
+    p._config["prune_weight_floor"] = 0.6
+    mid = json.loads(p.handle_tool_call("memory", {"action": "report", "content": "weak"}))["id"]
+    p.handle_tool_call("memory", {"action": "rate", "id": mid, "score": 0})  # weight -> 0.5
+    p.on_session_end([])
+    assert p._store.get(mid) is None
+    p.shutdown()

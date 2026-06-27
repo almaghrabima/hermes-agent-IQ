@@ -15,6 +15,8 @@ def register_cli(subparser) -> None:
     s = sub.add_parser("search", help="hybrid search")
     s.add_argument("query")
     sub.add_parser("reindex", help="re-embed rows whose model != active encoder")
+    pr = sub.add_parser("prune", help="delete memories whose learned weight < floor")
+    pr.add_argument("--floor", type=float, default=0.5, help="weight floor (default 0.5)")
     subparser.set_defaults(func=_run)
 
 
@@ -41,6 +43,9 @@ def _run(args) -> int:
         elif args.tm_cmd == "reindex":
             n = prov._reindex()
             print(f"re-embedded {n} rows")
+        elif args.tm_cmd == "prune":
+            n = store.prune(args.floor)
+            print(f"pruned {n} memories (weight < {args.floor})")
         return 0
     finally:
         prov.shutdown()

@@ -48,3 +48,12 @@ def test_register_cli_sets_func_default():
     parser = argparse.ArgumentParser(prog="hermes turso-memory")
     register_cli(parser)
     assert parser.get_default("func") is _run
+
+
+def test_register_cli_prune_subcommand():
+    from plugins.memory.turso_memory.cli import register_cli
+    parser = argparse.ArgumentParser(prog="hermes turso-memory")
+    register_cli(parser)
+    args = parser.parse_args(["prune", "--floor", "0.6"])
+    assert args.tm_cmd == "prune"
+    assert args.floor == 0.6
