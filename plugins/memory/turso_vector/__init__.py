@@ -231,6 +231,57 @@ class TursoVectorMemoryProvider(MemoryProvider):
 
         return {"error": f"Unknown tool: {tool_name}"}
 
+    def system_prompt_block(self) -> str:
+        return (
+            "# Long-term memory (turso_vector)\n"
+            "Relevant past learnings are recalled automatically each turn. Use "
+            "memory_report to record a correction or insight, memory_remember to "
+            "store an explicit user fact, memory_rate to score how useful the "
+            "recalled memories were (improves future recall), and "
+            "memory_contradict to delete a wrong memory."
+        )
+
+    def _decay_sweep(self) -> None:
+        if not self._enabled or not self._retrieved:
+            return
+        ids = list(self._retrieved.keys())
+        self._submit(lambda: self._store.decay_and_prune(
+            ids=ids, now=_now_iso(),
+            decay_rate=float(self._settings["decay_rate"]),
+            weight_floor=float(self._settings["weight_floor"])), timeout=8.0)
+        self._retrieved = {}
+
+    def on_session_end(self, messages) -> None:
+        self._decay_sweep()
+
+    def on_pre_compress(self, messages) -> str:
+        self._decay_sweep()
+        return ""
+
+    def get_config_schema(self) -> List[Dict[str, Any]]:
+        return [
+            {"key": "embedding_backend", "description": "Embeddings source: 'local' (offline) or 'api'.", "default": "local", "choices": ["local", "api"]},
+            {"key": "embedding_model", "description": "Embedding model id.", "default": "all-MiniLM-L6-v2"},
+            {"key": "embedding_dim", "description": "Embedding dimension (must match the model; fixed at first DB creation).", "default": 384},
+            {"key": "embedding_api_base", "description": "API backend only: OpenAI-compatible base URL.", "default": "https://api.openai.com/v1"},
+            {"key": "embed_api_key", "description": "API backend only: embeddings API key.", "secret": True, "required": False, "env_var": "TURSO_VECTOR_EMBED_API_KEY"},
+            {"key": "top_k", "description": "Memories recalled per turn.", "default": 8},
+            {"key": "max_dist", "description": "Max cosine distance for a memory to be recalled (0-1; lower = stricter relevance).", "default": 0.9},
+            {"key": "auto_extract", "description": "Auto-extract insights at session end (experimental).", "default": False, "choices": [True, False]},
+        ]
+
+    def shutdown(self) -> None:
+        try:
+            if self._executor is not None:
+                self._executor.shutdown(wait=True, cancel_futures=False)
+        except Exception:
+            pass
+        try:
+            if self._store is not None:
+                self._store._conn.close()
+        except Exception:
+            pass
+
 
 def register(ctx) -> None:
     """Register turso_vector as a memory provider plugin."""
