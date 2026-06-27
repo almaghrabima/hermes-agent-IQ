@@ -90,6 +90,7 @@ from typing import Any, Iterable, Optional
 
 from toolsets import get_toolset_names
 from hermes_cli.kanban_spawn_provider import resolve_kanban_spawn  # noqa: E402
+from agent.device_identity import get_device_id, next_id
 
 _log = logging.getLogger(__name__)
 
@@ -1083,20 +1084,22 @@ CREATE TABLE IF NOT EXISTS task_links (
 );
 
 CREATE TABLE IF NOT EXISTS task_comments (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id    TEXT NOT NULL,
-    author     TEXT NOT NULL,
-    body       TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id       TEXT NOT NULL,
+    author        TEXT NOT NULL,
+    body          TEXT NOT NULL,
+    created_at    INTEGER NOT NULL,
+    origin_device TEXT
 );
 
 CREATE TABLE IF NOT EXISTS task_events (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id    TEXT NOT NULL,
-    run_id     INTEGER,
-    kind       TEXT NOT NULL,
-    payload    TEXT,
-    created_at INTEGER NOT NULL
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id       TEXT NOT NULL,
+    run_id        INTEGER,
+    kind          TEXT NOT NULL,
+    payload       TEXT,
+    created_at    INTEGER NOT NULL,
+    origin_device TEXT
 );
 
 -- Historical attempt record. Each time the dispatcher claims a task, a
@@ -1135,14 +1138,15 @@ CREATE TABLE IF NOT EXISTS task_runs (
 -- the absolute path to the worker (which has full file-tool access). See
 -- #35338.
 CREATE TABLE IF NOT EXISTS task_attachments (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id      TEXT NOT NULL,
-    filename     TEXT NOT NULL,
-    stored_path  TEXT NOT NULL,
-    content_type TEXT,
-    size         INTEGER NOT NULL DEFAULT 0,
-    uploaded_by  TEXT,
-    created_at   INTEGER NOT NULL
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id       TEXT NOT NULL,
+    filename      TEXT NOT NULL,
+    stored_path   TEXT NOT NULL,
+    content_type  TEXT,
+    size          INTEGER NOT NULL DEFAULT 0,
+    uploaded_by   TEXT,
+    created_at    INTEGER NOT NULL,
+    origin_device TEXT
 );
 
 -- Subscription from a gateway source (platform + chat + thread) to a
@@ -1211,10 +1215,14 @@ def _resolve_busy_timeout_ms() -> int:
 
 
 def _sqlite_connect(path: Path) -> sqlite3.Connection:
-    """Open a Kanban SQLite connection with consistent lock waiting."""
+    """Open a Kanban connection via the db_backend shim (syncs under Turso)."""
+    from agent.db_backend import connect, resolve_sync_config
     busy_timeout_ms = _resolve_busy_timeout_ms()
-    conn = sqlite3.connect(
+    label = f"kanban/{path.parent.name}/{path.name}" if path.parent.name else path.name
+    conn = connect(
         str(path),
+        label=label,
+        sync=resolve_sync_config(label),
         isolation_level=None,
         timeout=busy_timeout_ms / 1000.0,
     )
@@ -1908,6 +1916,18 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
     if "run_id" not in ev_cols:
         _add_column_if_missing(conn, "task_events", "run_id", "run_id INTEGER")
 
+    # Multi-device hardening: origin_device attribution for child tables.
+    # NULL on legacy rows is correct — they predate device identity.
+    ev_cols = {row["name"] for row in conn.execute("PRAGMA table_info(task_events)")}
+    if "origin_device" not in ev_cols:
+        _add_column_if_missing(conn, "task_events", "origin_device", "origin_device TEXT")
+    tc_cols = {row["name"] for row in conn.execute("PRAGMA table_info(task_comments)")}
+    if "origin_device" not in tc_cols:
+        _add_column_if_missing(conn, "task_comments", "origin_device", "origin_device TEXT")
+    ta_cols = {row["name"] for row in conn.execute("PRAGMA table_info(task_attachments)")}
+    if "origin_device" not in ta_cols:
+        _add_column_if_missing(conn, "task_attachments", "origin_device", "origin_device TEXT")
+
     # Same ordering rule as the additive ``tasks`` indexes above: create the
     # index after the additive column migration so legacy ``task_events``
     # tables don't fail during SCHEMA_SQL execution before ``run_id`` exists.
@@ -2019,7 +2039,7 @@ _REBUILD_SPECS = {
         "CREATE TABLE task_events ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"
         " task_id TEXT NOT NULL, run_id INTEGER, kind TEXT NOT NULL,"
-        " payload TEXT, created_at INTEGER NOT NULL)",
+        " payload TEXT, created_at INTEGER NOT NULL, origin_device TEXT)",
         (
             "CREATE INDEX idx_events_task ON task_events(task_id, created_at)",
             "CREATE INDEX idx_events_run ON task_events(run_id, id)",
@@ -2029,7 +2049,7 @@ _REBUILD_SPECS = {
         "CREATE TABLE task_comments ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"
         " task_id TEXT NOT NULL, author TEXT NOT NULL, body TEXT NOT NULL,"
-        " created_at INTEGER NOT NULL)",
+        " created_at INTEGER NOT NULL, origin_device TEXT)",
         ("CREATE INDEX idx_comments_task ON task_comments(task_id, created_at)",),
     ),
     "task_runs": (
@@ -2725,13 +2745,14 @@ def add_comment(
             "SELECT 1 FROM tasks WHERE id = ?", (task_id,)
         ).fetchone():
             raise ValueError(f"unknown task {task_id}")
-        cur = conn.execute(
-            "INSERT INTO task_comments (task_id, author, body, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (task_id, author.strip(), body.strip(), now),
+        new_id = next_id()
+        conn.execute(
+            "INSERT INTO task_comments (id, task_id, author, body, created_at, origin_device) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (new_id, task_id, author.strip(), body.strip(), now, get_device_id()),
         )
         _append_event(conn, task_id, "commented", {"author": author, "len": len(body)})
-        return int(cur.lastrowid or 0)
+        return int(new_id)
 
 
 def list_comments(conn: sqlite3.Connection, task_id: str) -> list[Comment]:
@@ -2781,11 +2802,13 @@ def add_attachment(
             "SELECT 1 FROM tasks WHERE id = ?", (task_id,)
         ).fetchone():
             raise ValueError(f"unknown task {task_id}")
-        cur = conn.execute(
+        new_id = next_id()
+        conn.execute(
             "INSERT INTO task_attachments "
-            "(task_id, filename, stored_path, content_type, size, uploaded_by, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(id, task_id, filename, stored_path, content_type, size, uploaded_by, created_at, origin_device) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
+                new_id,
                 task_id,
                 filename.strip(),
                 stored_path,
@@ -2793,6 +2816,7 @@ def add_attachment(
                 int(size),
                 uploaded_by,
                 now,
+                get_device_id(),
             ),
         )
         _append_event(
@@ -2801,7 +2825,7 @@ def add_attachment(
             "attached",
             {"filename": filename.strip(), "size": int(size), "by": uploaded_by},
         )
-        return int(cur.lastrowid or 0)
+        return int(new_id)
 
 
 def list_attachments(conn: sqlite3.Connection, task_id: str) -> list[Attachment]:
@@ -2908,9 +2932,9 @@ def _append_event(
     now = int(time.time())
     pl = json.dumps(payload, ensure_ascii=False) if payload else None
     conn.execute(
-        "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (task_id, run_id, kind, pl, now),
+        "INSERT INTO task_events (id, task_id, run_id, kind, payload, created_at, origin_device) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (next_id(), task_id, run_id, kind, pl, now, get_device_id()),
     )
 
 
@@ -4585,15 +4609,17 @@ def specify_triage_task(
             # 'commented' event that ``add_comment`` emits, since the
             # 'specified' event below already records the change.
             conn.execute(
-                "INSERT INTO task_comments (task_id, author, body, created_at) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT INTO task_comments (id, task_id, author, body, created_at, origin_device) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
+                    next_id(),
                     task_id,
                     author.strip(),
                     "Specified — updated "
                     + ", ".join(changed_fields)
                     + " and promoted to todo.",
                     int(time.time()),
+                    get_device_id(),
                 ),
             )
         _append_event(
@@ -4805,15 +4831,17 @@ def decompose_triage_task(
         # Audit comment + event on the root so the timeline shows the fan-out.
         if author and author.strip():
             conn.execute(
-                "INSERT INTO task_comments (task_id, author, body, created_at) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT INTO task_comments (id, task_id, author, body, created_at, origin_device) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
+                    next_id(),
                     task_id,
                     author.strip(),
                     "Decomposed into "
                     + ", ".join(child_ids)
                     + ". Root will wake when all children complete.",
                     now,
+                    get_device_id(),
                 ),
             )
         _append_event(
