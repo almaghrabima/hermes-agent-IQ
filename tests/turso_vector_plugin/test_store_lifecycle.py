@@ -44,6 +44,31 @@ def test_decay_and_prune_removes_sub_floor(tmp_path):
     assert "keep" in remaining and "drop" not in remaining
 
 
+def test_decay_uses_prior_last_used_not_reuse_time(tmp_path):
+    # F4: pass the PRE-reuse timestamp; decay must charge that idle interval
+    # even though mark_used() already bumped last_used_at to "now".
+    s = _store(tmp_path)
+    mid = _insert(s, "x", weight=1.0, created="2026-06-01T00:00:00+00:00")
+    s.mark_used([mid], now="2026-06-27T00:00:00+00:00")  # simulate prefetch
+    s.decay_and_prune(ids=[mid], now="2026-06-27T00:00:00+00:00",
+                      decay_rate=0.98, weight_floor=0.0,
+                      prior_used={mid: "2026-06-07T00:00:00+00:00"})  # 20 days idle
+    w = s._conn.execute("SELECT weight FROM memories WHERE id=?", (mid,)).fetchone()[0]
+    assert abs(w - (0.98 ** 20)) < 1e-9
+
+
+def test_decay_without_prior_sees_zero_idle_after_mark_used(tmp_path):
+    # Demonstrates the bug F4 fixes: without prior_used, last_used_at == now,
+    # so days_idle is 0 and the weight is left ~unchanged.
+    s = _store(tmp_path)
+    mid = _insert(s, "x", weight=1.0, created="2026-06-01T00:00:00+00:00")
+    s.mark_used([mid], now="2026-06-27T00:00:00+00:00")
+    s.decay_and_prune(ids=[mid], now="2026-06-27T00:00:00+00:00",
+                      decay_rate=0.98, weight_floor=0.0)
+    w = s._conn.execute("SELECT weight FROM memories WHERE id=?", (mid,)).fetchone()[0]
+    assert w == 1.0
+
+
 def test_delete(tmp_path):
     s = _store(tmp_path)
     mid = _insert(s, "x")

@@ -23,6 +23,11 @@ class _FakeEmbedder:
 def provider(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(emb_mod, "make_embedder", lambda cfg: _FakeEmbedder())
+    # Config dim must match the fake embedder's dim (validated in initialize()).
+    # I1 fix: config is now read from config["memory"]["turso_vector"].
+    import yaml
+    (tmp_path / "config.yaml").write_text(
+        yaml.safe_dump({"memory": {"turso_vector": {"embedding_dim": 4}}}))
     from plugins.memory.turso_vector import TursoVectorMemoryProvider
     p = TursoVectorMemoryProvider()
     p.initialize("sess-1", hermes_home=str(tmp_path), platform="cli", cwd=str(tmp_path))
@@ -32,6 +37,8 @@ def provider(tmp_path, monkeypatch):
 def test_full_loop_recall_then_rate(provider):
     provider.handle_tool_call("memory_report", {
         "kind": "insight", "lesson": "always run scripts/run_tests.sh"})
+    # I2 fix: queue_prefetch starts background recall; prefetch() returns cached result.
+    provider.queue_prefetch("use the test wrapper")
     block = provider.prefetch("use the test wrapper")
     assert "run_tests.sh" in block
     rid = next(iter(provider._retrieved))
@@ -57,6 +64,10 @@ def test_sqlite_backend_creates_local_libsql_file(tmp_path, monkeypatch):
 def test_persistence_across_reinit(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(emb_mod, "make_embedder", lambda cfg: _FakeEmbedder())
+    import yaml
+    # I1 fix: config is now read from config["memory"]["turso_vector"].
+    (tmp_path / "config.yaml").write_text(
+        yaml.safe_dump({"memory": {"turso_vector": {"embedding_dim": 4}}}))
     from plugins.memory.turso_vector import TursoVectorMemoryProvider
     p1 = TursoVectorMemoryProvider()
     p1.initialize("s1", hermes_home=str(tmp_path), platform="cli", cwd=str(tmp_path))

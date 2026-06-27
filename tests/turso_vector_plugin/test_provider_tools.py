@@ -16,6 +16,11 @@ class _FakeEmbedder:
 def provider(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(emb_mod, "make_embedder", lambda cfg: _FakeEmbedder())
+    # Config dim must match the fake embedder's dim (validated in initialize()).
+    import yaml
+    # I1 fix: config is now read from config["memory"]["turso_vector"].
+    (tmp_path / "config.yaml").write_text(
+        yaml.safe_dump({"memory": {"turso_vector": {"embedding_dim": 4}}}))
     from plugins.memory.turso_vector import TursoVectorMemoryProvider
     p = TursoVectorMemoryProvider()
     p.initialize("sess-1", hermes_home=str(tmp_path), platform="cli", cwd=str(tmp_path))
