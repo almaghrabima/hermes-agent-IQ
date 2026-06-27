@@ -41,7 +41,7 @@ def fuse_and_rank(fts_ids, vec_ids, rows_by_id, *, k: int):
 
 def final_rank(fts_ids, vec_ids, rows_by_id, *, k, now_iso,
                active_project=None, project_boost: float = 0.1,
-               decay_rate: float = 0.98):
+               decay_rate: float = 0.98) -> list[dict]:
     """RRF-fuse the FTS + vector id lists, then weight each by learned weight,
     recency decay, and project match. Returns top-k rows (copies + ``_score``)."""
     base = rrf_fuse([list(fts_ids), list(vec_ids)])
