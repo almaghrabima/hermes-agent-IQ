@@ -4,6 +4,7 @@ import pytest
 pytest.importorskip("temporalio")
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
+from plugins.temporal.worker import build_workflow_runner
 from temporalio import activity
 from plugins.temporal.workflows import _make_background_workflow
 from plugins.temporal import outbox, delivery
@@ -33,7 +34,8 @@ async def test_durable_delegation_delivers_after_restart(tmp_path, monkeypatch):
         tq = f"hermes-p2-{uuid.uuid4().hex[:8]}"
         run_id = f"durable-deleg-{uuid.uuid4().hex[:8]}"
         async with Worker(env.client, task_queue=tq,
-                          workflows=[_make_background_workflow()], activities=[ok_step, real_record]):
+                          workflows=[_make_background_workflow()], activities=[ok_step, real_record],
+                          workflow_runner=build_workflow_runner()):
             wf_result = await env.client.execute_workflow(
                 "BackgroundDelegationWorkflow",
                 {"goal": "q", "session_key": "sessA", "run_id": run_id,
@@ -74,7 +76,8 @@ async def test_durable_delegation_failure_is_recorded(tmp_path, monkeypatch):
         tq = f"hermes-p2f-{uuid.uuid4().hex[:8]}"
         run_id = f"durable-deleg-{uuid.uuid4().hex[:8]}"
         async with Worker(env.client, task_queue=tq,
-                          workflows=[_make_background_workflow()], activities=[boom_step, real_record]):
+                          workflows=[_make_background_workflow()], activities=[boom_step, real_record],
+                          workflow_runner=build_workflow_runner()):
             wf_result = await env.client.execute_workflow(
                 "BackgroundDelegationWorkflow",
                 {"goal": "q", "session_key": "sessF", "run_id": run_id,

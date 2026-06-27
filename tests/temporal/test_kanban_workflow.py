@@ -52,6 +52,7 @@ async def test_kanban_workflow_runs_activity_and_completes(monkeypatch):
     """End-to-end: KanbanTaskWorkflow → run_kanban_worker activity (subprocess stubbed)."""
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
+    from plugins.temporal.worker import build_workflow_runner
     from plugins.temporal import activities as A
     from plugins.temporal.workflows import _make_kanban_task_workflow
     from hermes_cli import kanban_db
@@ -82,6 +83,7 @@ async def test_kanban_workflow_runs_activity_and_completes(monkeypatch):
                 workflows=[WF],
                 activities=A._make_activities(),
                 activity_executor=pool,
+                workflow_runner=build_workflow_runner(),
             ):
                 result = await env.client.execute_workflow(
                     "KanbanTaskWorkflow",
@@ -116,6 +118,7 @@ async def test_kanban_workflow_heartbeats_while_worker_alive(monkeypatch):
     import concurrent.futures
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
+    from plugins.temporal.worker import build_workflow_runner
     from plugins.temporal import activities as A
     from plugins.temporal.workflows import _make_kanban_task_workflow
     from hermes_cli import kanban_db
@@ -146,6 +149,7 @@ async def test_kanban_workflow_heartbeats_while_worker_alive(monkeypatch):
                 workflows=[WF],
                 activities=A._make_activities(),
                 activity_executor=pool,
+                workflow_runner=build_workflow_runner(),
             ):
                 result = await env.client.execute_workflow(
                     "KanbanTaskWorkflow",
@@ -170,6 +174,7 @@ async def test_kanban_workflow_finalizes_card_on_activity_failure(monkeypatch):
     instead of orphaning it in 'running' status (SQLite reapers skip temporal rows)."""
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
+    from plugins.temporal.worker import build_workflow_runner
     from plugins.temporal import activities as A
     from plugins.temporal.workflows import _make_kanban_task_workflow
     from hermes_cli import kanban_db
@@ -196,6 +201,7 @@ async def test_kanban_workflow_finalizes_card_on_activity_failure(monkeypatch):
                 workflows=[WF],
                 activities=A._make_activities(),
                 activity_executor=pool,
+                workflow_runner=build_workflow_runner(),
             ):
                 with pytest.raises(Exception):
                     await env.client.execute_workflow(

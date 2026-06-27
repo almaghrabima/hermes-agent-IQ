@@ -4,6 +4,7 @@ import pytest
 pytest.importorskip("temporalio")
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
+from plugins.temporal.worker import build_workflow_runner
 from temporalio import activity
 from plugins.temporal.workflows import _make_cron_fire_workflow
 
@@ -21,7 +22,8 @@ async def test_cron_fire_workflow_invokes_fire_activity():
     async with await WorkflowEnvironment.start_time_skipping() as env:
         tq = f"hermes-p4a-{uuid.uuid4().hex[:8]}"
         async with Worker(env.client, task_queue=tq,
-                          workflows=[_make_cron_fire_workflow()], activities=[fake_fire]):
+                          workflows=[_make_cron_fire_workflow()], activities=[fake_fire],
+                          workflow_runner=build_workflow_runner()):
             out = await env.client.execute_workflow(
                 "CronFireWorkflow", "job-123", id=f"cf-{uuid.uuid4().hex[:8]}", task_queue=tq)
     assert out is True

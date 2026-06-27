@@ -5,6 +5,26 @@ from plugins.temporal.tconfig import resolve_temporal_config
 from plugins.temporal.client import connect
 
 
+def build_workflow_runner():
+    """Sandboxed workflow runner that passes through ``hermes_constants``.
+
+    Importing any Hermes workflow pulls in ``plugins.temporal`` ->
+    ``hermes_cli.config`` -> ``hermes_constants``, which computes a module-level
+    ``Path(__file__).resolve()`` (the node-bootstrap script path). That call is
+    banned inside temporalio's workflow sandbox, so ``hermes_constants`` must be
+    passed through: it is deterministic path/constant data and is never used in
+    workflow logic (workflows invoke activities by string name). Both the worker
+    and the workflow tests build through this so they share one sandbox policy.
+    """
+    from temporalio.worker.workflow_sandbox import (  # type: ignore
+        SandboxedWorkflowRunner,
+        SandboxRestrictions,
+    )
+    return SandboxedWorkflowRunner(
+        restrictions=SandboxRestrictions.default.with_passthrough_modules("hermes_constants")
+    )
+
+
 async def run_worker(s) -> None:
     from concurrent.futures import ThreadPoolExecutor
     from tools.registry import discover_builtin_tools
@@ -23,6 +43,7 @@ async def run_worker(s) -> None:
             workflows=[_make_workflow(), _make_background_workflow(), _make_human_input_workflow(), _make_cron_fire_workflow(), _make_kanban_task_workflow(), _make_rlm_run_workflow()],
             activities=_make_activities(),
             activity_executor=pool,
+            workflow_runner=build_workflow_runner(),
         )
         await worker.run()
 

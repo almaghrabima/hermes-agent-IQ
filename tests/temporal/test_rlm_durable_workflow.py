@@ -20,6 +20,7 @@ async def test_rlm_workflow_runs_and_delivers(monkeypatch, tmp_path):
     from temporalio.worker import Worker
     from plugins.temporal import activities as A
     from plugins.temporal.workflows import _make_rlm_run_workflow
+    from plugins.temporal.worker import build_workflow_runner
     from plugins.temporal import delivery
     import tools.rlm_tool as rlm_mod
 
@@ -40,6 +41,7 @@ async def test_rlm_workflow_runs_and_delivers(monkeypatch, tmp_path):
                 workflows=[WF],
                 activities=A._make_activities(),
                 activity_executor=pool,
+                workflow_runner=build_workflow_runner(),
             ):
                 result = await env.client.execute_workflow(
                     "RlmRunWorkflow",

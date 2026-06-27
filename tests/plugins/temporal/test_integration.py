@@ -5,6 +5,7 @@ import pytest
 pytest.importorskip("temporalio")
 from temporalio.testing import WorkflowEnvironment  # noqa: E402
 from temporalio.worker import Worker  # noqa: E402
+from plugins.temporal.worker import build_workflow_runner  # noqa: E402
 from plugins.temporal.workflows import _make_workflow  # noqa: E402
 from temporalio import activity  # noqa: E402
 
@@ -25,7 +26,8 @@ async def test_workflow_retries_then_completes():
     async with await WorkflowEnvironment.start_time_skipping() as env:
         tq = f"hermes-test-{uuid.uuid4().hex[:8]}"
         async with Worker(env.client, task_queue=tq,
-                          workflows=[_make_workflow()], activities=[flaky_run_step]):
+                          workflows=[_make_workflow()], activities=[flaky_run_step],
+                          workflow_runner=build_workflow_runner()):
             result = await env.client.execute_workflow(
                 "DurableRunWorkflow",
                 {"steps": [{"name": "s1", "prompt": "x"}],

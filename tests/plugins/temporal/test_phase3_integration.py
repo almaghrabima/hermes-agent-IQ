@@ -4,6 +4,7 @@ import pytest
 pytest.importorskip("temporalio")
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
+from plugins.temporal.worker import build_workflow_runner
 from temporalio import activity
 from plugins.temporal.workflows import _make_human_input_workflow
 from plugins.temporal import outbox
@@ -20,7 +21,8 @@ async def test_signal_resumes_and_delivers(tmp_path, monkeypatch):
     async with await WorkflowEnvironment.start_time_skipping() as env:
         tq = f"hermes-p3-{uuid.uuid4().hex[:8]}"; run_id = f"durable-ask-{uuid.uuid4().hex[:8]}"
         async with Worker(env.client, task_queue=tq,
-                          workflows=[_make_human_input_workflow()], activities=[real_record]):
+                          workflows=[_make_human_input_workflow()], activities=[real_record],
+                          workflow_runner=build_workflow_runner()):
             h = await env.client.start_workflow(
                 "HumanInputWorkflow",
                 {"prompt": "ok?", "session_key": "sessA", "run_id": run_id, "timeout_seconds": 3600},
@@ -36,7 +38,8 @@ async def test_timeout_completes_timed_out(tmp_path, monkeypatch):
     async with await WorkflowEnvironment.start_time_skipping() as env:
         tq = f"hermes-p3-{uuid.uuid4().hex[:8]}"; run_id = f"durable-ask-{uuid.uuid4().hex[:8]}"
         async with Worker(env.client, task_queue=tq,
-                          workflows=[_make_human_input_workflow()], activities=[real_record]):
+                          workflows=[_make_human_input_workflow()], activities=[real_record],
+                          workflow_runner=build_workflow_runner()):
             res = await env.client.execute_workflow(
                 "HumanInputWorkflow",
                 {"prompt": "ok?", "session_key": "sessA", "run_id": run_id, "timeout_seconds": 1},
