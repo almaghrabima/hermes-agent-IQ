@@ -252,3 +252,21 @@ def test_session_end_prunes_when_enabled(tmp_path, monkeypatch):
     p.on_session_end([])
     assert p._store.get(mid) is None
     p.shutdown()
+
+
+def test_session_end_string_false_does_not_extract(tmp_path, monkeypatch):
+    import agent.auxiliary_client as aux
+    def _boom(**kw):
+        raise AssertionError("string 'false' must be treated as OFF")
+    monkeypatch.setattr(aux, "call_llm", _boom)
+    p = _provider(tmp_path, monkeypatch)
+    p._config["extract_on_session_end"] = "false"   # wizard persists the literal string
+    p._config["prune_on_session_end"] = "false"
+    p.on_session_end([{"role": "user", "content": "hi"}, {"role": "assistant", "content": "ok"}])
+    p.shutdown()
+
+
+def test_cfg_bool_coercion():
+    from plugins.memory.turso_memory import _cfg_bool
+    assert _cfg_bool("true") and _cfg_bool("True") and _cfg_bool(True) and _cfg_bool("on")
+    assert not _cfg_bool("false") and not _cfg_bool("") and not _cfg_bool(None) and not _cfg_bool(False)

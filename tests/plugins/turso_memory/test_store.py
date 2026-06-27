@@ -80,16 +80,6 @@ def test_remove(tmp_path):
     s.close()
 
 
-def test_feedback_adjusts_trust(tmp_path):
-    s = _store(tmp_path)
-    mid = s.add("rate me", embedding=[1.0, 0.0, 0.0], embed_model="fake/3")
-    s.feedback(mid, helpful=True)
-    assert s.get(mid)["trust_score"] > 0.5
-    s.feedback(mid, helpful=False)
-    assert s.get(mid)["trust_score"] < 0.55
-    s.close()
-
-
 # ---------- FIX M1 — builtin_source_key strips content before hashing ----------
 
 def test_builtin_source_key_strips_whitespace():

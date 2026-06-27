@@ -176,26 +176,6 @@ class TursoMemoryStore:
             cur = self._conn.execute("DELETE FROM memories WHERE id = ?", (mem_id,))
             return (cur.rowcount or 0) > 0
 
-    def feedback(self, mem_id, helpful: bool) -> None:
-        delta = 0.05 if helpful else -0.10
-        col = "helpful_count" if helpful else "unhelpful_count"
-        with self._lock:
-            self._conn.execute(
-                f"UPDATE memories SET trust_score = MAX(0.0, MIN(1.0, trust_score + ?)), "
-                f"{col} = {col} + 1, updated_at = ? WHERE id = ?",
-                (delta, _now(), mem_id),
-            )
-
-    def bump_recall(self, ids) -> None:
-        if not ids:
-            return
-        with self._lock:
-            qs = ",".join("?" for _ in ids)
-            self._conn.execute(
-                f"UPDATE memories SET recall_count = recall_count + 1 WHERE id IN ({qs})",
-                tuple(ids),
-            )
-
     def rate(self, mem_id, score: int, alpha: float) -> None:
         with self._lock:
             r = self._conn.execute("SELECT ema FROM memories WHERE id=?", (mem_id,)).fetchone()

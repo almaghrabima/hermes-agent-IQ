@@ -38,6 +38,13 @@ def _transcript(messages) -> str:
     return "\n".join(lines)
 
 
+def _cfg_bool(v) -> bool:
+    """Coerce a config value (may be a YAML bool OR a wizard-persisted string) to bool."""
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "on")
+    return bool(v)
+
+
 def _parse_learnings(raw: str) -> list[str]:
     """Tolerantly pull a JSON string-array out of an LLM reply (handles ``` fences)."""
     m = re.search(r"\[.*\]", raw or "", re.DOTALL)
@@ -96,7 +103,6 @@ class TursoMemoryProvider(MemoryProvider):
         self._decay_rate = float(self._config.get("decay_rate", 0.98))
         self._project: str | None = None
         self._cwd: str | None = None
-        self._recalled_ids: set[str] = set()
         # Background prefetch state (I2: recall must not block the main turn loop)
         self._prefetch_lock = threading.Lock()
         self._prefetch_result: dict[str, str] = {}   # keyed by session_id
@@ -242,10 +248,10 @@ class TursoMemoryProvider(MemoryProvider):
             },
             {
                 "key": "prune_weight_floor",
-                "description": "Weight threshold for pruning (memories with weight < floor are deleted). 0.5 = the minimum a single 0-rating produces.",
+                "description": "Weight floor for pruning: memories with learned weight < floor are deleted. Weight ranges [0.5, 1.5]; a consistently down-rated memory sits at 0.5, so the default 0.6 removes down-rated memories while keeping unrated (1.0) ones.",
                 "secret": False,
                 "required": False,
-                "default": "0.5",
+                "default": "0.6",
             },
         ]
 
@@ -298,7 +304,6 @@ class TursoMemoryProvider(MemoryProvider):
                             decay_rate=self._decay_rate)
         ids = [r["id"] for r in ranked]
         self._store.mark_used(ids, now)
-        self._recalled_ids.update(ids)
         return [{"id": r["id"], "content": r["content"], "score": round(r["_score"], 4)} for r in ranked]
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
@@ -457,18 +462,18 @@ class TursoMemoryProvider(MemoryProvider):
     def _prune(self) -> int:
         if not self._store:
             return 0
-        return self._store.prune(float(self._config.get("prune_weight_floor", 0.5)))
+        return self._store.prune(float(self._config.get("prune_weight_floor", 0.6)))
 
     def on_session_end(self, messages) -> None:
         if not self._store:
             return
-        if self._config.get("extract_on_session_end"):
+        if _cfg_bool(self._config.get("extract_on_session_end")):
             try:
                 for learning in self._extract_learnings(messages):
                     self._store_one(learning, kind="learning", source="extracted")
             except Exception as exc:
                 logger.debug("turso_memory session-end extraction failed: %s", exc)
-        if self._config.get("prune_on_session_end"):
+        if _cfg_bool(self._config.get("prune_on_session_end")):
             try:
                 self._prune()
             except Exception as exc:
@@ -478,7 +483,6 @@ class TursoMemoryProvider(MemoryProvider):
                           reset: bool = False, rewound: bool = False, **kwargs) -> None:
         self._session_id = new_session_id
         if reset and self._store:
-            self._recalled_ids.clear()
             self._reconcile_builtin()
 
     def _reindex(self) -> int:

@@ -16,7 +16,7 @@ def register_cli(subparser) -> None:
     s.add_argument("query")
     sub.add_parser("reindex", help="re-embed rows whose model != active encoder")
     pr = sub.add_parser("prune", help="delete memories whose learned weight < floor")
-    pr.add_argument("--floor", type=float, default=0.5, help="weight floor (default 0.5)")
+    pr.add_argument("--floor", type=float, default=0.6, help="weight floor (default 0.6)")
     subparser.set_defaults(func=_run)
 
 
