@@ -70,7 +70,8 @@ export function McpSettings({ gateway, onConfigSaved }: McpSettingsProps) {
       .catch(err => notifyError(err, m.failedLoad))
 
     return () => void (cancelled = true)
-  }, [m.failedLoad])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount; copy is stable
+  }, [])
 
   const servers = useMemo(() => getServers(config), [config])
   const names = useMemo(() => Object.keys(servers).sort(), [servers])

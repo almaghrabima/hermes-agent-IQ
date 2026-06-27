@@ -51,7 +51,11 @@ const renderBillingError = (
     case 'monthly_cap_exceeded': {
       // Surface the remaining headroom the server attaches (parity with the CLI).
       const remaining = env.payload?.remainingUsd
-      sys(remaining != null ? `🔴 Monthly spend cap reached — $${remaining} headroom left.` : '🔴 Monthly spend cap reached.')
+      sys(
+        remaining != null
+          ? `🔴 Monthly spend cap reached — $${remaining} headroom left.`
+          : '🔴 Monthly spend cap reached.'
+      )
 
       break
     }

@@ -211,9 +211,7 @@ export function useRouteResume({
     }
 
     const stranded =
-      Boolean(routedSessionId) &&
-      resumeFailedSessionId === routedSessionId &&
-      !creatingSessionRef.current
+      Boolean(routedSessionId) && resumeFailedSessionId === routedSessionId && !creatingSessionRef.current
 
     if (!stranded) {
       // Route moved off the stranded session (or it recovered) — reset the

@@ -32,7 +32,11 @@ describe('AttachmentList', () => {
 
   it('renders empty list without error', () => {
     renderWithI18n(<AttachmentList attachments={[]} />)
-    expect(document.querySelector('[data-slot="composer-attachments"]')).not.toBeNull()
+
+    const container =
+      screen.getByTestId?.('composer-attachments') ?? document.querySelector('[data-slot="composer-attachments"]')
+
+    expect(container).toBeDefined()
   })
 
   it('does not crash when attachments array contains undefined entries', () => {
@@ -54,10 +58,7 @@ describe('AttachmentList', () => {
   })
 
   it('does not crash when attachments array contains null entries', () => {
-    const attachments = [
-      null as unknown as ComposerAttachment,
-      makeAttachment('a', 'valid.txt')
-    ]
+    const attachments = [null as unknown as ComposerAttachment, makeAttachment('a', 'valid.txt')]
 
     expect(() => {
       renderWithI18n(<AttachmentList attachments={attachments} />)

@@ -355,7 +355,11 @@ export function ProvidersSettings({ onClose, onViewChange, view }: ProvidersSett
     // Leave the settings overlay so the terminal pane (chat-only) is visible.
     onClose()
     runInTerminal(command)
-    notify({ kind: 'info', title: t.settings.providers.removedTitle, message: t.settings.providers.removeTerminalRunning(name) })
+    notify({
+      kind: 'info',
+      title: t.settings.providers.removedTitle,
+      message: t.settings.providers.removeTerminalRunning(name)
+    })
   }
 
   async function handleDisconnect(provider: OAuthProvider) {
@@ -369,7 +373,12 @@ export function ProvidersSettings({ onClose, onViewChange, view }: ProvidersSett
 
     try {
       await disconnectOAuthProvider(provider.id)
-      notify({ durationMs: 3_000, kind: 'success', title: t.settings.providers.removedTitle, message: t.settings.providers.removedMessage(name) })
+      notify({
+        durationMs: 3_000,
+        kind: 'success',
+        title: t.settings.providers.removedTitle,
+        message: t.settings.providers.removedMessage(name)
+      })
       await refreshOAuthProviders().catch(() => undefined)
     } catch (err) {
       notifyError(err, t.settings.providers.failedRemove(name))
@@ -394,12 +403,7 @@ export function ProvidersSettings({ onClose, onViewChange, view }: ProvidersSett
 
     const visibleGroups = q
       ? keyGroups.filter(group => {
-          const haystack = [
-            group.name,
-            group.description ?? '',
-            group.primary[0],
-            ...group.advanced.map(([k]) => k)
-          ]
+          const haystack = [group.name, group.description ?? '', group.primary[0], ...group.advanced.map(([k]) => k)]
 
           return haystack.some(s => s.toLowerCase().includes(q))
         })

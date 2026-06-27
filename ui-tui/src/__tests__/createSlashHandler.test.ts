@@ -288,10 +288,7 @@ describe('createSlashHandler', () => {
     resetOverlayState()
     expect(createSlashHandler(ctx)('/pet')).toBe(true)
     expect(getOverlayState().petPicker).toBe(false)
-    expect(ctx.gateway.gw.request).toHaveBeenCalledWith(
-      'slash.exec',
-      expect.objectContaining({ command: 'pet' })
-    )
+    expect(ctx.gateway.gw.request).toHaveBeenCalledWith('slash.exec', expect.objectContaining({ command: 'pet' }))
 
     resetOverlayState()
     expect(createSlashHandler(ctx)('/pet toggle')).toBe(true)
@@ -307,10 +304,7 @@ describe('createSlashHandler', () => {
 
     expect(createSlashHandler(ctx)('/pet boba')).toBe(true)
     expect(getOverlayState().petPicker).toBe(false)
-    expect(ctx.gateway.gw.request).toHaveBeenCalledWith(
-      'slash.exec',
-      expect.objectContaining({ command: 'pet boba' })
-    )
+    expect(ctx.gateway.gw.request).toHaveBeenCalledWith('slash.exec', expect.objectContaining({ command: 'pet boba' }))
   })
 
   it('routes /skills inspect <name> to skills.manage', () => {
@@ -557,7 +551,9 @@ describe('createSlashHandler', () => {
     const ctx = buildCtx({ gateway: { ...buildGateway(), rpc } })
 
     expect(createSlashHandler(ctx)('/browser connect')).toBe(true)
-    expect(ctx.transcript.sys).toHaveBeenCalledWith('checking Chromium-family browser remote debugging at http://127.0.0.1:9222...')
+    expect(ctx.transcript.sys).toHaveBeenCalledWith(
+      'checking Chromium-family browser remote debugging at http://127.0.0.1:9222...'
+    )
 
     await vi.waitFor(() => {
       expect(ctx.transcript.sys).toHaveBeenCalledWith(

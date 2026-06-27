@@ -24,11 +24,7 @@ interface HarnessProps {
   startFreshSessionDraft: (focus: boolean) => unknown
 }
 
-function RouteResumeHarness({
-  resumeFailedSessionId = null,
-  resumeExhaustedSessionId = null,
-  ...props
-}: HarnessProps) {
+function RouteResumeHarness({ resumeFailedSessionId = null, resumeExhaustedSessionId = null, ...props }: HarnessProps) {
   useRouteResume({ ...props, resumeExhaustedSessionId, resumeFailedSessionId })
 
   return null

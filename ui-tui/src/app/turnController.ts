@@ -772,7 +772,13 @@ class TurnController {
             done?.verboseArgs,
             error || resultText || summary || ''
           )
-        : buildToolTrailLine(name, done?.context || '', Boolean(error), error || summary || '', duration ?? fallbackDuration)
+        : buildToolTrailLine(
+            name,
+            done?.context || '',
+            Boolean(error),
+            error || summary || '',
+            duration ?? fallbackDuration
+          )
 
     this.activeTools = this.activeTools.filter(tool => tool.id !== toolId)
 
