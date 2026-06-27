@@ -1,6 +1,7 @@
 """Pure weighting math for turso_memory. No I/O."""
 from __future__ import annotations
 
+import calendar
 import time
 
 
@@ -22,8 +23,8 @@ def weight_from_ema(ema: float) -> float:
 
 def days_between(earlier_iso: str, later_iso: str) -> float:
     fmt = "%Y-%m-%dT%H:%M:%SZ"
-    a = time.mktime(time.strptime(earlier_iso, fmt))
-    b = time.mktime(time.strptime(later_iso, fmt))
+    a = calendar.timegm(time.strptime(earlier_iso, fmt))
+    b = calendar.timegm(time.strptime(later_iso, fmt))
     return max(0.0, (b - a) / 86400.0)
 
 
