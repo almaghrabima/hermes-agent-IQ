@@ -1,6 +1,6 @@
 import pytest
 
-from tools.rlm.llm_modes import resolve_rlm_llm_mode, CodingAgentSpec, CODING_AGENT_PROVIDERS
+from tools.rlm.llm_modes import resolve_rlm_llm_mode, CODING_AGENT_PROVIDERS
 
 
 def _cfg(provider="openrouter", default="anthropic/claude-3.5-haiku"):

@@ -86,3 +86,16 @@ def test_coding_agent_mode_errors_when_not_authenticated(monkeypatch):
     out = json.loads(rlm_tool.rlm_tool(query="q", context="ctx"))
     assert out["status"] == "error"
     assert "coding agent" in out["error"].lower()
+
+
+def test_bad_llm_mode_returns_rlm_error_not_generic(monkeypatch):
+    """Fix A: a bad llm_mode value produces a clean RlmError, not a noisy stack trace."""
+    monkeypatch.setattr(rlm_tool, "_load_rlm_config", lambda: _base_cfg(llm_mode="bogus"))
+    monkeypatch.setattr(rlm_tool, "load_config_readonly",
+                        lambda: {"model": {"provider": "openrouter", "default": "x"}})
+    monkeypatch.setattr(rlm_tool, "_get_or_create_env", lambda task_id: (_FakeEnv(), "local"))
+    out = json.loads(rlm_tool.rlm_tool(query="q", context="ctx"))
+    assert out["status"] == "error"
+    assert "llm_mode" in out["error"]
+    # Must NOT be the generic "rlm failed:" wrapper from the unexpected-exception handler
+    assert not out["error"].startswith("rlm failed:")

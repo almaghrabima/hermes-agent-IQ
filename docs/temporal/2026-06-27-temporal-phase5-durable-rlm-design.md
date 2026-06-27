@@ -158,7 +158,7 @@ The rlm tool supports two LLM backend modes, selected via `rlm.llm_mode` in `con
 
 In both modes the tool result JSON includes a `model_backend` field (e.g.
 `"api:claude-sonnet"` or `"coding_agent:openai-codex"`) surfacing which backend
-was used. The durable `_run_rlm_blocking` path passes this field through unchanged.
+was used. The durable `_run_rlm_blocking` path normalizes the result into a summary dict and does NOT surface `model_backend`; that field is present only in the synchronous return path.
 
 ## Limitations (documented)
 

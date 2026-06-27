@@ -304,7 +304,10 @@ def rlm_tool(query, context=None, input_path=None, primary_agent=None,
 
         config = load_config_readonly()
         from tools.rlm.llm_modes import resolve_rlm_llm_mode
-        mode = resolve_rlm_llm_mode(rlm_cfg, config)
+        try:
+            mode = resolve_rlm_llm_mode(rlm_cfg, config)
+        except ValueError as exc:
+            raise RlmError(str(exc))
 
         env, env_type = _get_or_create_env(task_id or "default")
         if env_type in _CLOUD_BACKENDS and not rlm_cfg.get("allow_remote_backends"):
@@ -332,7 +335,7 @@ def rlm_tool(query, context=None, input_path=None, primary_agent=None,
             env, env_type, task_id or "default", cfg, creds,
             context_text=context, timeout=rlm_cfg.get("timeout_seconds", 600),
         )
-        return json.dumps({"status": "success", "model_backend": "api", **out}, ensure_ascii=False)
+        return json.dumps({"status": "success", **out, "model_backend": "api"}, ensure_ascii=False)
     except RlmError as exc:
         return json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False)
     except Exception as exc:  # unexpected
@@ -449,4 +452,4 @@ def _run_coding_agent_mode(rlm_cfg, config, env, env_type, task_id, *, query, co
             env, env_type, task_id, cfg, creds,
             context_text=context, timeout=rlm_cfg.get("timeout_seconds", 600),
         )
-    return json.dumps({"status": "success", "model_backend": f"coding_agent:{agent}", **out}, ensure_ascii=False)
+    return json.dumps({"status": "success", **out, "model_backend": f"coding_agent:{agent}"}, ensure_ascii=False)

@@ -50,13 +50,13 @@ class _Handler(BaseHTTPRequestHandler):
             return
         try:
             result = proxy.complete(req)
-        except Exception as exc:  # upstream/provider failure
+            if req.get("stream"):
+                self._sse(result)
+            else:
+                self._json(200, result)
+        except Exception as exc:
             self._json(502, {"error": {"message": str(exc), "type": "upstream_error"}})
             return
-        if req.get("stream"):
-            self._sse(result)
-        else:
-            self._json(200, result)
 
     def _sse(self, result: dict) -> None:
         self.send_response(200)

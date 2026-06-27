@@ -91,7 +91,7 @@ def test_streaming_request_emits_sse(monkeypatch):
     with llm_proxy.RlmCodingAgentProxy(provider="openai-codex", model="gpt-5.5") as proxy:
         req = urllib.request.Request(
             proxy.url + "/chat/completions",
-            data=json.dumps({"messages": [{"role": "user", "content": "hi"}], "stream": True}).encode(),
+            data=json.dumps({"messages": [{"role": "user", "content": "hi"}], "stream": True}).encode("utf-8"),
             headers={"Authorization": f"Bearer {proxy.token}", "Content-Type": "application/json"},
             method="POST",
         )
@@ -100,3 +100,31 @@ def test_streaming_request_emits_sse(monkeypatch):
     assert "data: " in body
     assert "streamed" in body
     assert "[DONE]" in body
+
+
+def test_missing_auth_header_is_401(monkeypatch):
+    monkeypatch.setattr(llm_proxy, "call_llm", lambda task=None, **kw: _Resp())
+    with llm_proxy.RlmCodingAgentProxy(provider="openai-codex", model="gpt-5.5") as proxy:
+        req = urllib.request.Request(
+            proxy.url + "/chat/completions",
+            data=json.dumps({"messages": [{"role": "user", "content": "hi"}]}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            urllib.request.urlopen(req, timeout=5)
+        assert ei.value.code == 401
+
+
+def test_wrong_path_is_404(monkeypatch):
+    monkeypatch.setattr(llm_proxy, "call_llm", lambda task=None, **kw: _Resp())
+    with llm_proxy.RlmCodingAgentProxy(provider="openai-codex", model="gpt-5.5") as proxy:
+        req = urllib.request.Request(
+            proxy.url + "/embeddings",
+            data=json.dumps({"input": "hello"}).encode("utf-8"),
+            headers={"Authorization": f"Bearer {proxy.token}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            urllib.request.urlopen(req, timeout=5)
+        assert ei.value.code == 404

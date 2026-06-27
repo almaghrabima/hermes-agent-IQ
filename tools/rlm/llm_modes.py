@@ -7,20 +7,12 @@ orchestration in ``tools/rlm_tool.py`` acts on the decision.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 # Providers whose connection is a coding agent (not a plain OpenAI-compatible
 # api-key endpoint) and therefore needs the local shim. Extension point for
 # "others"; v1 ships openai-codex only.
 CODING_AGENT_PROVIDERS = {"openai-codex"}
 
 _VALID_MODES = {"auto", "api", "coding_agent"}
-
-
-@dataclass
-class CodingAgentSpec:
-    provider: str
-    model: str
 
 
 def resolve_rlm_llm_mode(rlm_cfg: dict, config: dict) -> str:
