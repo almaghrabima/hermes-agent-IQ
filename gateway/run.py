@@ -2500,6 +2500,15 @@ async def _dispose_unused_adapter(adapter: "BasePlatformAdapter | None") -> None
         )
 
 
+def _durable_message_id(evt: dict) -> "str | None":
+    """Resolve the platform_message_id for a forged completion turn.
+
+    Prefer an explicit platform message_id; otherwise fall back to the durable
+    run id (carried on the event as ``delegation_id``) so the persisted —
+    and Turso-synced — message is tagged for cross-device dedup."""
+    return str(evt.get("message_id") or evt.get("delegation_id") or "").strip() or None
+
+
 class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, GatewaySlashCommandsMixin):
     """
     Main gateway controller.
@@ -13833,16 +13842,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             user_id=str(evt.get("user_id") or "").strip() or None,
             user_name=str(evt.get("user_name") or "").strip() or None,
         )
-
-
-def _durable_message_id(evt: dict) -> "str | None":
-    """Resolve the platform_message_id for a forged completion turn.
-
-    Prefer an explicit platform message_id; otherwise fall back to the durable
-    run id (carried on the event as ``delegation_id``) so the persisted —
-    and Turso-synced — message is tagged for cross-device dedup."""
-    return str(evt.get("message_id") or evt.get("delegation_id") or "").strip() or None
-
 
     async def _inject_watch_notification(self, synth_text: str, evt: dict) -> None:
         """Inject a watch-pattern notification as a synthetic message event.
