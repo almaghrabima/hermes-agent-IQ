@@ -6539,6 +6539,13 @@ def test_browser_manage_connect_default_local_reports_launch_hint(monkeypatch):
                 "hermes_cli.browser_connect.get_chrome_debug_candidates",
                 return_value=[],
             ),
+            # Force the "no browser executable" branch regardless of host —
+            # otherwise a dev machine with Chrome installed yields a manual
+            # launch command and the "No supported ..." hint never fires.
+            patch(
+                "hermes_cli.browser_connect.manual_chrome_debug_command",
+                return_value="",
+            ),
         ):
             resp = server.handle_request(
                 {
