@@ -293,6 +293,17 @@ class TestIsClaudeCodeTokenValid:
 
 
 class TestResolveAnthropicToken:
+    @pytest.fixture(autouse=True)
+    def no_keychain(self, monkeypatch):
+        # Path.home() redirection does not cover the macOS Keychain read
+        # (source #3, tried before the credentials file), so a machine with
+        # Claude Code logged in would leak its real OAuth token into these
+        # tests. Stub the keychain leg to None to match a clean CI host.
+        monkeypatch.setattr(
+            "agent.anthropic_adapter._read_claude_code_credentials_from_keychain",
+            lambda: None,
+        )
+
     def test_prefers_oauth_token_over_api_key(self, monkeypatch, tmp_path):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-mykey")
         monkeypatch.setenv("ANTHROPIC_TOKEN", "sk-ant-oat01-mytoken")
@@ -507,6 +518,16 @@ class TestResolveAnthropicToken:
 
 
 class TestRefreshOauthToken:
+    @pytest.fixture(autouse=True)
+    def no_keychain(self, monkeypatch):
+        # Isolate the macOS Keychain read (not covered by Path.home()
+        # redirection) so a logged-in Claude Code install can't leak a real
+        # OAuth token into the refresh assertions.
+        monkeypatch.setattr(
+            "agent.anthropic_adapter._read_claude_code_credentials_from_keychain",
+            lambda: None,
+        )
+
     def test_returns_none_without_refresh_token(self):
         creds = {"accessToken": "expired", "refreshToken": "", "expiresAt": 0}
         assert _refresh_oauth_token(creds) is None
@@ -597,6 +618,17 @@ class TestWriteClaudeCodeCredentials:
 
 
 class TestResolveWithRefresh:
+    @pytest.fixture(autouse=True)
+    def no_keychain(self, monkeypatch):
+        # These tests stage an expired creds *file* and expect auto-refresh.
+        # On a machine with Claude Code logged in, the keychain read (source #3,
+        # tried before the file) returns a valid real token and short-circuits
+        # the refresh path. Path.home() redirection doesn't cover the keychain.
+        monkeypatch.setattr(
+            "agent.anthropic_adapter._read_claude_code_credentials_from_keychain",
+            lambda: None,
+        )
+
     def test_auto_refresh_on_expired_creds(self, monkeypatch, tmp_path):
         """When cred file has expired token + refresh token, auto-refresh is attempted."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

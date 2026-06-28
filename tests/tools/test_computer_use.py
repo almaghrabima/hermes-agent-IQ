@@ -1200,10 +1200,15 @@ class TestLazyMcpInstall:
 
     def test_feature_registered_in_allowlist(self):
         from tools import lazy_deps
-        assert lazy_deps.feature_specs("tool.computer_use") == (
-            "mcp==1.26.0",
-            "starlette==1.0.1",
-        )
+
+        specs = lazy_deps.feature_specs("tool.computer_use")
+        # Assert the contract — computer_use lazy-installs mcp + starlette —
+        # not the frozen pins, which legitimately bump for CVE fixes (the pins
+        # live in lazy_deps.py / pyproject and are validated there).
+        assert specs, "tool.computer_use should register lazy-install specs"
+        assert all("==" in spec for spec in specs)
+        pkgs = {spec.split("==", 1)[0] for spec in specs}
+        assert pkgs == {"mcp", "starlette"}
 
     def test_start_lazy_installs_mcp(self):
         from tools.computer_use import cua_backend
