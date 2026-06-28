@@ -3787,6 +3787,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._agent_running = False
         self._pending_input = queue.Queue()
         self._interrupt_queue = queue.Queue()
+        self._pending_pmid: dict[str, str] = {}  # synthetic durable input text -> run_id
         # Tracks whether the turn that just finished was interrupted via
         # Ctrl+C. Consumed by _maybe_continue_goal_after_turn so /goal loops
         # don't auto-queue another continuation on top of a user-cancelled
@@ -11533,7 +11534,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             except Exception:
                 pass
 
-    def chat(self, message, images: list = None) -> Optional[str]:
+    def chat(self, message, images: list = None, platform_message_id: str = None) -> Optional[str]:
         """
         Send a message to the agent and get a response.
         
@@ -11812,6 +11813,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         stream_callback=stream_callback,
                         task_id=self.session_id,
                         persist_user_message=message if _voice_prefix else None,
+                        platform_message_id=platform_message_id,
                         moa_config=_moa_cfg,
                     )
                     if getattr(self, "_pending_moa_disable_after_turn", False):
@@ -14608,6 +14610,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                             try:
                                 from tools.process_registry import process_registry
                                 for _evt, _synth in process_registry.drain_notifications():
+                                    _rid = _evt.get("delegation_id")
+                                    if _rid and _evt.get("type") == "async_delegation":
+                                        self._pending_pmid[_synth] = _rid
                                     self._pending_input.put(_synth)
                             except Exception:
                                 pass
@@ -14714,7 +14719,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     app.invalidate()  # Refresh status line
 
                     try:
-                        self.chat(user_input, images=submit_images or None)
+                        _pmid = self._pending_pmid.pop(user_input, None)
+                        self.chat(user_input, images=submit_images or None, platform_message_id=_pmid)
                     finally:
                         self._agent_running = False
                         self._spinner_text = ""

@@ -1520,7 +1520,8 @@ class AIAgent:
         idx = getattr(self, "_persist_user_message_idx", None)
         override = getattr(self, "_persist_user_message_override", None)
         timestamp = getattr(self, "_persist_user_message_timestamp", None)
-        if idx is None or (override is None and timestamp is None):
+        platform_id = getattr(self, "_persist_user_message_platform_id", None)
+        if idx is None or (override is None and timestamp is None and platform_id is None):
             return
         if 0 <= idx < len(messages):
             msg = messages[idx]
@@ -1537,6 +1538,8 @@ class AIAgent:
                     msg["content"] = override
                 if timestamp is not None:
                     msg["timestamp"] = timestamp
+                if platform_id is not None:
+                    msg["platform_message_id"] = platform_id
 
     def _persist_session(self, messages: List[Dict], conversation_history: List[Dict] = None):
         """Save session state to both JSON log and SQLite on any exit path.
@@ -5344,6 +5347,7 @@ class AIAgent:
         stream_callback: Optional[callable] = None,
         persist_user_message: Optional[str] = None,
         persist_user_timestamp: Optional[float] = None,
+        platform_message_id: Optional[str] = None,
         moa_config: Optional[dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Forwarder — see ``agent.conversation_loop.run_conversation``."""
@@ -5357,6 +5361,7 @@ class AIAgent:
             stream_callback,
             persist_user_message,
             persist_user_timestamp=persist_user_timestamp,
+            platform_message_id=platform_message_id,
             moa_config=moa_config,
         )
 
