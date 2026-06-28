@@ -100,6 +100,7 @@ def test_tagged_message_visible_cross_device_and_dedups(tmp_path, monkeypatch):
         {"goal": "g", "summary": "done"},
     )
 
+    assert outbox.has_run(run_id) is True  # row present → empty drain below proves dedup, not empty outbox
     # drain must skip the row: has_platform_message_id is True → _already_surfaced → no re-forge
     events = delivery.drain_outbox_for_sessions([session_id], db_b)
     assert events == []

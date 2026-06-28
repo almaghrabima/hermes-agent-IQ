@@ -49,4 +49,5 @@ def test_missing_platform_message_id_is_none():
         if c.kwargs.get("role") == "user"
     ]
     assert len(user_appends) == 1
-    assert user_appends[0].kwargs.get("platform_message_id") is None
+    assert "platform_message_id" in user_appends[0].kwargs
+    assert user_appends[0].kwargs["platform_message_id"] is None

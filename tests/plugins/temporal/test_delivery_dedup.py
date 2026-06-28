@@ -1,6 +1,7 @@
 """drain_outbox_for_sessions must skip emitting a completion event for a row
 whose run_id is already present in synced SessionDB history, so a device that
 reconciled the same durable run does not re-forge it."""
+import logging
 from unittest.mock import MagicMock
 
 import plugins.temporal.delivery as delivery
@@ -33,14 +34,16 @@ def test_emits_row_not_in_history(monkeypatch):
     assert events[0]["delegation_id"] == "run-2"
 
 
-def test_emits_when_history_check_raises(monkeypatch):
+def test_emits_when_history_check_raises(monkeypatch, caplog):
     monkeypatch.setattr(delivery.outbox, "claim_undelivered", lambda keys: [_row("run-3")])
     db = MagicMock()
     db.has_platform_message_id.side_effect = RuntimeError("db down")
 
-    events = delivery.drain_outbox_for_sessions(["s1"], db)
+    with caplog.at_level(logging.WARNING, logger="plugins.temporal.delivery"):
+        events = delivery.drain_outbox_for_sessions(["s1"], db)
 
     assert len(events) == 1  # best-effort: favor delivery over silent drop
+    assert any(rec.levelno == logging.WARNING for rec in caplog.records)
 
 
 def test_no_session_db_emits_all_unchanged(monkeypatch):
