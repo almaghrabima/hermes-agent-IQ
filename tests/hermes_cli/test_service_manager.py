@@ -7,6 +7,8 @@ implementation in this same file once that phase ships.
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from hermes_cli.service_manager import (
@@ -436,6 +438,22 @@ def test_s6_manager_kind_and_supports_registration() -> None:
 # tests/docker/test_s6_profile_gateway_integration.py.
 
 
+def _own_group(path) -> None:
+    """Set ``path``'s group to the caller's effective gid.
+
+    The helper requests setgid dirs (``0o3730``) via ``chmod``. On BSD/macOS a
+    new dir inherits its *parent's* group, and when that group isn't the
+    caller's egid (and the caller isn't root) the kernel silently strips the
+    setgid bit on ``chmod``. Under the test wrapper's clean env ``TMPDIR`` is
+    unset, so tmp dirs land under ``/tmp`` (group ``wheel``) and the assertion
+    would fail on a non-root macOS dev box — yet pass in Linux CI, where
+    ``/tmp`` children take the process's own group. Normalising the slot's
+    group to the egid makes the inherited group match and the setgid bit stick
+    deterministically everywhere. No-op on Linux (already egid-owned).
+    """
+    os.chown(path, -1, os.getegid())
+
+
 def test_seed_supervise_skeleton_creates_expected_layout(tmp_path) -> None:
     """Verifies the dirs + FIFO + modes the helper lays down."""
     import stat
@@ -444,6 +462,7 @@ def test_seed_supervise_skeleton_creates_expected_layout(tmp_path) -> None:
 
     svc_dir = tmp_path / "gateway-foo"
     svc_dir.mkdir()
+    _own_group(svc_dir)
 
     _seed_supervise_skeleton(svc_dir)
 
@@ -486,6 +505,7 @@ def test_seed_supervise_skeleton_handles_log_subservice(tmp_path) -> None:
 
     svc_dir = tmp_path / "gateway-foo"
     svc_dir.mkdir()
+    _own_group(svc_dir)
     (svc_dir / "log").mkdir()  # logger subdir present
 
     _seed_supervise_skeleton(svc_dir)
