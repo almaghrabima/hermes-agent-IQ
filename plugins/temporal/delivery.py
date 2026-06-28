@@ -31,11 +31,31 @@ def _row_to_event(row: dict) -> dict:
     }
 
 
-def drain_outbox_for_sessions(session_keys: list[str]) -> list[dict]:
-    """Claim undelivered durable-delegation results for these sessions and return
-    them as completion events (already marked delivered)."""
+def _already_surfaced(session_db, row: dict) -> bool:
+    """True if a message tagged with this run_id already exists in (synced)
+    history — i.e. another device already delivered it. Best-effort: on any
+    SessionDB error, return False so we favor delivery over a silent drop."""
+    if session_db is None:
+        return False
+    try:
+        return bool(
+            session_db.has_platform_message_id(row["session_key"], row["run_id"])
+        )
+    except Exception as exc:  # noqa: BLE001 — never block delivery on a read error
+        logger.warning("durable dedup check failed for %s: %s", row.get("run_id"), exc)
+        return False
+
+
+def drain_outbox_for_sessions(session_keys: list[str], session_db=None) -> list[dict]:
+    """Claim undelivered durable results for these sessions and return them as
+    completion events (already marked delivered).
+
+    When ``session_db`` is provided, rows whose ``run_id`` is already present in
+    SessionDB history are skipped: their result was delivered (and synced) by
+    another device, so re-forging here would double-surface it. When
+    ``session_db`` is None, every claimed row is emitted (legacy behavior)."""
     rows = outbox.claim_undelivered(session_keys)
-    return [_row_to_event(r) for r in rows]
+    return [_row_to_event(r) for r in rows if not _already_surfaced(session_db, r)]
 
 
 def reconcile_from_temporal() -> int:

@@ -10487,7 +10487,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 _live_keys = list(self.session_store._entries.keys())  # noqa: SLF001
                 if session_key and session_key not in _live_keys:
                     _live_keys.append(session_key)
-                for _evt in drain_outbox_for_sessions(_live_keys):
+                for _evt in drain_outbox_for_sessions(_live_keys, self._session_db):
                     _pr.completion_queue.put(_evt)
             except Exception:
                 pass

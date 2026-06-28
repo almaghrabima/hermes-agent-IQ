@@ -12550,7 +12550,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         """
         from plugins.temporal.delivery import drain_outbox_for_sessions
 
-        return drain_outbox_for_sessions([self.session_id or "default"])
+        return drain_outbox_for_sessions([self.session_id or "default"], self._session_db)
 
     def run(self):
         """Run the interactive CLI loop with persistent input at bottom."""
