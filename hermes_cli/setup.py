@@ -2797,6 +2797,25 @@ SETUP_SECTIONS = [
     ("agent", "Agent Settings", setup_agent_settings),
 ]
 
+ADVANCED_SETUP_SECTIONS = [
+    ("turso", "Turso (libSQL sync backend)", setup_turso),
+    ("temporal", "Temporal (durable execution)", setup_temporal),
+    ("rlm", "Fast-RLM (recursive LM toolset)", setup_rlm),
+]
+
+
+def _run_advanced_backends_menu(config: dict) -> None:
+    """Loop a picker over the advanced backend flows until the user is done."""
+    while True:
+        labels = [label for _key, label, _func in ADVANCED_SETUP_SECTIONS] + ["Done"]
+        idx = prompt_choice(
+            "Which backend would you like to configure?", labels, len(labels) - 1
+        )
+        if idx >= len(ADVANCED_SETUP_SECTIONS):
+            return
+        _key, _label, func = ADVANCED_SETUP_SECTIONS[idx]
+        func(config)
+
 
 def _run_portal_one_shot(config: dict) -> None:
     """One-shot Nous Portal setup — OAuth + model pick + provider + Tool Gateway.
@@ -2945,7 +2964,7 @@ def run_setup_wizard(args):
     # Check if a specific section was requested
     section = getattr(args, "section", None)
     if section:
-        for key, label, func in SETUP_SECTIONS:
+        for key, label, func in SETUP_SECTIONS + ADVANCED_SETUP_SECTIONS:
             if key == section:
                 print()
                 print(
@@ -2968,7 +2987,8 @@ def run_setup_wizard(args):
                 return
 
         print_error(f"Unknown setup section: {section}")
-        print_info(f"Available sections: {', '.join(k for k, _, _ in SETUP_SECTIONS)}")
+        all_keys = [k for k, _, _ in SETUP_SECTIONS + ADVANCED_SETUP_SECTIONS]
+        print_info(f"Available sections: {', '.join(all_keys)}")
         return
 
     # Check if this is an existing installation with a provider configured
@@ -3035,7 +3055,8 @@ def run_setup_wizard(args):
         print_info("Press Enter to keep it, or type a new value to change it.")
         print_info("")
         print_info("Tip: jump straight to a section with 'hermes setup model|terminal|")
-        print_info("     gateway|tools|agent', or fill only missing items with --quick.")
+        print_info("     gateway|tools|agent|turso|temporal|rlm', or fill only missing")
+        print_info("     items with --quick.")
         # Fall through to the "Full Setup — run all sections" block below.
         # --reconfigure is now the default on existing installs; the flag
         # is preserved for backwards compatibility but is a no-op here.
@@ -3107,6 +3128,13 @@ def run_setup_wizard(args):
     # Section 5: Tools
     if not (migration_ran and _skip_configured_section(config, "tools", "Tools")):
         setup_tools(config, first_install=not is_existing)
+
+    # Advanced / Backends — gated, default No so first-run stays clean.
+    if prompt_yes_no(
+        "Configure advanced backends (Turso sync, Temporal, Fast-RLM)?",
+        default=False,
+    ):
+        _run_advanced_backends_menu(config)
 
     # Save and show summary
     save_config(config)

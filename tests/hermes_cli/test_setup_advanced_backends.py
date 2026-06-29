@@ -185,3 +185,54 @@ def test_setup_rlm_preserves_existing_toolsets(tmp_path, monkeypatch):
     setup_rlm(config)
 
     assert set(config["platform_toolsets"]["cli"]) == {"web", "file", "rlm"}
+
+
+# =============================================================================
+# Task 5: Wizard wiring tests
+# =============================================================================
+
+import argparse
+
+
+def test_setup_parser_accepts_advanced_sections():
+    from hermes_cli.subcommands.setup import build_setup_parser
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command")
+    build_setup_parser(sub, cmd_setup=lambda args: None)
+    for section in ("turso", "temporal", "rlm"):
+        args = parser.parse_args(["setup", section])
+        assert args.section == section
+
+
+def test_advanced_sections_map_to_callables():
+    from hermes_cli.setup import (
+        ADVANCED_SETUP_SECTIONS, setup_turso, setup_temporal, setup_rlm,
+    )
+    by_key = {key: func for key, _label, func in ADVANCED_SETUP_SECTIONS}
+    assert by_key["turso"] is setup_turso
+    assert by_key["temporal"] is setup_temporal
+    assert by_key["rlm"] is setup_rlm
+
+
+def test_section_dispatch_runs_turso(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    import hermes_cli.setup as s
+
+    called = []
+    monkeypatch.setattr(s, "setup_turso", lambda config: called.append("turso"))
+    monkeypatch.setattr(s, "save_config", lambda *a, **k: None)
+    monkeypatch.setattr(s, "is_interactive_stdin", lambda: True)
+    # rebuild ADVANCED_SETUP_SECTIONS so it references the patched setup_turso
+    monkeypatch.setattr(
+        s, "ADVANCED_SETUP_SECTIONS",
+        [("turso", "Turso (libSQL sync backend)", s.setup_turso),
+         ("temporal", "Temporal (durable execution)", s.setup_temporal),
+         ("rlm", "Fast-RLM (recursive LM toolset)", s.setup_rlm)],
+    )
+
+    args = argparse.Namespace(
+        section="turso", reset=False, reconfigure=False, quick=False,
+        portal=False, non_interactive=False,
+    )
+    s.run_setup_wizard(args)
+    assert called == ["turso"]
