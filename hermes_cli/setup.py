@@ -161,6 +161,36 @@ from hermes_cli.cli_output import (  # noqa: E402
 from hermes_cli.secret_prompt import masked_secret_prompt  # noqa: E402
 
 
+def _ensure_optional_dep(feature: str, label: str) -> bool:
+    """Ensure an optional lazy-dep feature is installed, with manual fallback.
+
+    Returns True if deps are present (already or after a successful install),
+    False after printing the manual install command. Never raises.
+    """
+    from tools import lazy_deps
+
+    try:
+        if lazy_deps.is_available(feature):
+            return True
+    except Exception:
+        pass
+
+    print_info(f"Installing {label}…")
+    try:
+        lazy_deps.ensure(feature, prompt=False)
+        print_success(f"{label} installed.")
+        return True
+    except Exception as exc:  # noqa: BLE001 — best-effort install
+        print_warning(f"Could not install {label}: {exc}")
+        try:
+            cmd = lazy_deps.feature_install_command(feature)
+        except Exception:
+            cmd = None
+        if cmd:
+            print_info(f"  Install manually: {cmd}")
+        return False
+
+
 def is_interactive_stdin() -> bool:
     """Return True when stdin looks like a usable interactive TTY."""
     stdin = getattr(sys, "stdin", None)
