@@ -149,3 +149,39 @@ def test_setup_temporal_disable(tmp_path, monkeypatch):
 
     assert config["temporal"]["enabled"] is False
     assert config["temporal"]["target"] == "x:7233"  # other keys preserved
+
+
+# =============================================================================
+# RLM tests
+# =============================================================================
+
+from hermes_cli.setup import setup_rlm
+
+
+def test_setup_rlm_enables_toolset_cli(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _patch_no_install(monkeypatch)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/deno")
+    # prompt_choice: 0 == "CLI only (recommended)"
+    monkeypatch.setattr("hermes_cli.setup.prompt_choice", lambda *a, **k: 0)
+    # decline advanced settings
+    monkeypatch.setattr("hermes_cli.setup.prompt_yes_no", lambda *a, **k: False)
+
+    config = {}
+    setup_rlm(config)
+
+    assert "rlm" in config["platform_toolsets"]["cli"]
+    assert "rlm" not in config  # no rlm: block written when advanced declined
+
+
+def test_setup_rlm_preserves_existing_toolsets(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _patch_no_install(monkeypatch)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/deno")
+    monkeypatch.setattr("hermes_cli.setup.prompt_choice", lambda *a, **k: 0)
+    monkeypatch.setattr("hermes_cli.setup.prompt_yes_no", lambda *a, **k: False)
+
+    config = {"platform_toolsets": {"cli": ["web", "file"]}}
+    setup_rlm(config)
+
+    assert set(config["platform_toolsets"]["cli"]) == {"web", "file", "rlm"}

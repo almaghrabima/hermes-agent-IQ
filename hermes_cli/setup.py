@@ -2728,6 +2728,62 @@ def setup_temporal(config: dict) -> None:
     _ensure_optional_dep("tool.temporal", "Temporal SDK")
 
 
+def _enable_toolset_on_platforms(config: dict, toolset: str, platforms: list) -> None:
+    """Add ``toolset`` to config['platform_toolsets'][p] for each platform p."""
+    pt = config.setdefault("platform_toolsets", {})
+    for p in platforms:
+        existing = pt.get(p) or []
+        if toolset not in existing:
+            pt[p] = sorted(set(existing) | {toolset})
+
+
+def setup_rlm(config: dict) -> None:
+    """Enable the Fast-RLM toolset (Recursive LM over long context)."""
+    print_header("Fast-RLM (Recursive Language Model)")
+    print_info("RLM reasons over very long context by recursing through it.")
+    print_info("Opt-in toolset; needs Deno and the fast-rlm package.")
+
+    if not shutil.which("deno"):
+        print_warning("Deno not found in PATH.")
+        print_info("  Install: https://docs.deno.com/runtime/getting_started/installation/")
+        print_info("  (RLM will not run until Deno is installed; saving config anyway.)")
+    else:
+        print_info(f"Deno found: {shutil.which('deno')}")
+
+    _ensure_optional_dep("tool.fast_rlm", "fast-rlm package")
+
+    scope = prompt_choice(
+        "Enable the RLM toolset on which platforms?",
+        ["CLI only (recommended)", "All configured platforms"],
+        0,
+    )
+    if scope == 0:
+        platforms = ["cli"]
+    else:
+        existing = list((config.get("platform_toolsets") or {}).keys())
+        platforms = sorted(set(existing) | {"cli"})
+
+    _enable_toolset_on_platforms(config, "rlm", platforms)
+    print_success(f"RLM toolset enabled on: {', '.join(platforms)}")
+    print_info("Toggle per-platform any time with `hermes tools`.")
+
+    if prompt_yes_no("  Configure advanced RLM settings (executor, llm_mode)?", default=False):
+        rlm = config.setdefault("rlm", {})
+        ex = prompt_choice(
+            "  Code executor:",
+            ["pyodide — sandboxed (default)", "subprocess — local, unsandboxed"],
+            0,
+        )
+        if ex == 1:
+            rlm["executor"] = "subprocess"
+            rlm["executor_unsandboxed_ack"] = prompt_yes_no(
+                "  Acknowledge running code unsandboxed?", default=False)
+        mode = prompt_choice(
+            "  LLM mode:", ["auto (default)", "api", "coding_agent"], 0)
+        if mode != 0:
+            rlm["llm_mode"] = ["auto", "api", "coding_agent"][mode]
+
+
 # =============================================================================
 # Main Wizard Orchestrator
 # =============================================================================
