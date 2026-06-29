@@ -94,3 +94,58 @@ def test_setup_turso_empty_url_aborts(tmp_path, monkeypatch):
     config = {}
     setup_turso(config)
     assert config.get("database", {}).get("backend") != "turso"
+
+
+# =============================================================================
+# Temporal tests
+# =============================================================================
+
+from hermes_cli.setup import setup_temporal
+
+
+def test_setup_temporal_dev_server_enable(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _patch_no_install(monkeypatch)
+    # yes_no in order: enable? -> True, use dev server? -> True
+    yn = iter([True, True])
+    monkeypatch.setattr("hermes_cli.setup.prompt_yes_no", lambda *a, **k: next(yn))
+    monkeypatch.setattr("hermes_cli.setup.save_env_value", lambda k, v: None)
+
+    config = {}
+    setup_temporal(config)
+
+    assert config["temporal"]["enabled"] is True
+    assert config["temporal"]["dev_server"] is True
+
+
+def test_setup_temporal_external_server_writes_target(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _patch_no_install(monkeypatch)
+    # enable? True; use dev server? False; tls? False
+    yn = iter([True, False, False])
+    monkeypatch.setattr("hermes_cli.setup.prompt_yes_no", lambda *a, **k: next(yn))
+    # prompts: target, namespace, api_key(password)
+    answers = iter(["temporal.example.com:7233", "prod"])
+    monkeypatch.setattr("hermes_cli.setup.prompt",
+                        lambda q, default=None, password=False: (
+                            "" if password else next(answers)))
+    monkeypatch.setattr("hermes_cli.setup.save_env_value", lambda k, v: None)
+
+    config = {}
+    setup_temporal(config)
+
+    assert config["temporal"]["enabled"] is True
+    assert config["temporal"]["dev_server"] is False
+    assert config["temporal"]["target"] == "temporal.example.com:7233"
+    assert config["temporal"]["namespace"] == "prod"
+
+
+def test_setup_temporal_disable(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr("hermes_cli.setup.prompt_yes_no", lambda *a, **k: False)
+
+    config = {"temporal": {"enabled": True, "target": "x:7233"}}
+    setup_temporal(config)
+
+    assert config["temporal"]["enabled"] is False
+    assert config["temporal"]["target"] == "x:7233"  # other keys preserved

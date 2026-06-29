@@ -2694,6 +2694,40 @@ def setup_turso(config: dict) -> None:
             print_warning(f"  Connectivity check unavailable: {exc}")
 
 
+def setup_temporal(config: dict) -> None:
+    """Configure Temporal durable execution (config.yaml temporal: block)."""
+    print_header("Temporal (Durable Execution)")
+    print_info("Temporal runs durable gateway turns that survive a crash/restart.")
+    print_info("Requires a reachable Temporal server (a bundled dev server is offered).")
+
+    t = config.setdefault("temporal", {})
+    current = bool(t.get("enabled", False))
+
+    if not prompt_yes_no("Enable Temporal durable execution?", default=current):
+        t["enabled"] = False
+        print_info("Temporal disabled.")
+        return
+
+    use_dev = prompt_yes_no("  Use the bundled dev server (localhost)?", default=True)
+    t["dev_server"] = use_dev
+    t.setdefault("task_queue", "hermes")
+
+    if not use_dev:
+        t["target"] = prompt("  Temporal target (host:port)",
+                              t.get("target", "localhost:7233"))
+        t["namespace"] = prompt("  Namespace", t.get("namespace", "default"))
+        t["tls"] = prompt_yes_no("  Use TLS?", default=bool(t.get("tls", False)))
+        api_key = prompt("  Temporal Cloud API key (optional)", password=True)
+        if api_key:
+            save_env_value("TEMPORAL_API_KEY", api_key)
+            print_success("  API key saved to .env")
+
+    t["enabled"] = True
+    print_success("Temporal enabled.")
+
+    _ensure_optional_dep("tool.temporal", "Temporal SDK")
+
+
 # =============================================================================
 # Main Wizard Orchestrator
 # =============================================================================
