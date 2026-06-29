@@ -236,3 +236,13 @@ def test_section_dispatch_runs_turso(tmp_path, monkeypatch):
     )
     s.run_setup_wizard(args)
     assert called == ["turso"]
+
+
+# =============================================================================
+# Task 6: Configurable toolsets
+# =============================================================================
+
+def test_rlm_in_configurable_toolsets():
+    from hermes_cli.tools_config import CONFIGURABLE_TOOLSETS
+    keys = {ts_key for ts_key, _label, _desc in CONFIGURABLE_TOOLSETS}
+    assert "rlm" in keys
