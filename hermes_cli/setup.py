@@ -172,7 +172,7 @@ def _ensure_optional_dep(feature: str, label: str) -> bool:
     try:
         if lazy_deps.is_available(feature):
             return True
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     print_info(f"Installing {label}…")
@@ -184,7 +184,7 @@ def _ensure_optional_dep(feature: str, label: str) -> bool:
         print_warning(f"Could not install {label}: {exc}")
         try:
             cmd = lazy_deps.feature_install_command(feature)
-        except Exception:
+        except Exception:  # noqa: BLE001
             cmd = None
         if cmd:
             print_info(f"  Install manually: {cmd}")
@@ -2649,10 +2649,8 @@ def setup_turso(config: dict) -> None:
         1 if current == "turso" else 0,
     )
 
-    db = config.setdefault("database", {})
-
     if choice == 0:
-        db["backend"] = "sqlite"
+        config.setdefault("database", {})["backend"] = "sqlite"
         print_success("Database backend: local SQLite.")
         return
 
@@ -2664,6 +2662,7 @@ def setup_turso(config: dict) -> None:
     if not (sync_url.startswith("libsql://") or sync_url.startswith("https://")):
         print_warning("URL should start with libsql:// or https:// — saving anyway; verify if sync fails.")
 
+    db = config.setdefault("database", {})
     token = prompt("  Turso auth token", password=True)
     if token:
         save_env_value("TURSO_AUTH_TOKEN", token)
@@ -2743,12 +2742,13 @@ def setup_rlm(config: dict) -> None:
     print_info("RLM reasons over very long context by recursing through it.")
     print_info("Opt-in toolset; needs Deno and the fast-rlm package.")
 
-    if not shutil.which("deno"):
+    deno_path = shutil.which("deno")
+    if not deno_path:
         print_warning("Deno not found in PATH.")
         print_info("  Install: https://docs.deno.com/runtime/getting_started/installation/")
         print_info("  (RLM will not run until Deno is installed; saving config anyway.)")
     else:
-        print_info(f"Deno found: {shutil.which('deno')}")
+        print_info(f"Deno found: {deno_path}")
 
     _ensure_optional_dep("tool.fast_rlm", "fast-rlm package")
 
@@ -2768,20 +2768,22 @@ def setup_rlm(config: dict) -> None:
     print_info("Toggle per-platform any time with `hermes tools`.")
 
     if prompt_yes_no("  Configure advanced RLM settings (executor, llm_mode)?", default=False):
-        rlm = config.setdefault("rlm", {})
+        rlm_changes = {}
         ex = prompt_choice(
             "  Code executor:",
             ["pyodide — sandboxed (default)", "subprocess — local, unsandboxed"],
             0,
         )
         if ex == 1:
-            rlm["executor"] = "subprocess"
-            rlm["executor_unsandboxed_ack"] = prompt_yes_no(
+            rlm_changes["executor"] = "subprocess"
+            rlm_changes["executor_unsandboxed_ack"] = prompt_yes_no(
                 "  Acknowledge running code unsandboxed?", default=False)
         mode = prompt_choice(
             "  LLM mode:", ["auto (default)", "api", "coding_agent"], 0)
         if mode != 0:
-            rlm["llm_mode"] = ["auto", "api", "coding_agent"][mode]
+            rlm_changes["llm_mode"] = ["auto", "api", "coding_agent"][mode]
+        if rlm_changes:
+            config.setdefault("rlm", {}).update(rlm_changes)
 
 
 # =============================================================================

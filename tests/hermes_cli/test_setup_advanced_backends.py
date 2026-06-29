@@ -1,6 +1,9 @@
 """Tests for the Turso/Temporal/Fast-RLM setup-wizard flows."""
 
+import argparse
+
 import hermes_cli.setup as setup_mod
+from hermes_cli.setup import setup_turso, setup_temporal, setup_rlm
 
 
 def test_ensure_optional_dep_already_present(monkeypatch):
@@ -34,8 +37,6 @@ def test_ensure_optional_dep_failure_prints_manual_command(monkeypatch, capsys):
 # =============================================================================
 # Turso tests
 # =============================================================================
-
-from hermes_cli.setup import setup_turso
 
 
 def _patch_no_install(monkeypatch):
@@ -100,8 +101,6 @@ def test_setup_turso_empty_url_aborts(tmp_path, monkeypatch):
 # Temporal tests
 # =============================================================================
 
-from hermes_cli.setup import setup_temporal
-
 
 def test_setup_temporal_dev_server_enable(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
@@ -116,6 +115,7 @@ def test_setup_temporal_dev_server_enable(tmp_path, monkeypatch):
 
     assert config["temporal"]["enabled"] is True
     assert config["temporal"]["dev_server"] is True
+    assert config["temporal"]["task_queue"] == "hermes"
 
 
 def test_setup_temporal_external_server_writes_target(tmp_path, monkeypatch):
@@ -138,6 +138,7 @@ def test_setup_temporal_external_server_writes_target(tmp_path, monkeypatch):
     assert config["temporal"]["dev_server"] is False
     assert config["temporal"]["target"] == "temporal.example.com:7233"
     assert config["temporal"]["namespace"] == "prod"
+    assert config["temporal"]["tls"] is False
 
 
 def test_setup_temporal_disable(tmp_path, monkeypatch):
@@ -154,8 +155,6 @@ def test_setup_temporal_disable(tmp_path, monkeypatch):
 # =============================================================================
 # RLM tests
 # =============================================================================
-
-from hermes_cli.setup import setup_rlm
 
 
 def test_setup_rlm_enables_toolset_cli(tmp_path, monkeypatch):
@@ -188,10 +187,8 @@ def test_setup_rlm_preserves_existing_toolsets(tmp_path, monkeypatch):
 
 
 # =============================================================================
-# Task 5: Wizard wiring tests
+# wizard wiring / dispatch
 # =============================================================================
-
-import argparse
 
 
 def test_setup_parser_accepts_advanced_sections():
@@ -239,7 +236,7 @@ def test_section_dispatch_runs_turso(tmp_path, monkeypatch):
 
 
 # =============================================================================
-# Task 6: Configurable toolsets
+# CONFIGURABLE_TOOLSETS membership
 # =============================================================================
 
 def test_rlm_in_configurable_toolsets():
