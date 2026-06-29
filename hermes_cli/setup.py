@@ -2636,6 +2636,64 @@ def _offer_openclaw_migration(hermes_home: Path) -> bool:
     return True
 
 
+def setup_turso(config: dict) -> None:
+    """Configure the database backend (local SQLite vs Turso libSQL sync)."""
+    print_header("Database Backend (Turso)")
+    print_info("Choose where Hermes stores session/state data.")
+    print_info("Turso adds multi-device libSQL cloud sync; local SQLite is the default.")
+
+    current = str(cfg_get(config, "database", "backend", default="sqlite")).lower()
+    choice = prompt_choice(
+        "Select database backend:",
+        ["Local SQLite (default)", "Turso (libSQL cloud sync)"],
+        1 if current == "turso" else 0,
+    )
+
+    db = config.setdefault("database", {})
+
+    if choice == 0:
+        db["backend"] = "sqlite"
+        print_success("Database backend: local SQLite.")
+        return
+
+    existing = cfg_get(config, "database", "turso", "sync_url", default="") or ""
+    sync_url = prompt("  Turso sync URL (libsql://… or https://…)", existing)
+    if not sync_url:
+        print_warning("No sync URL entered — leaving the backend unchanged.")
+        return
+    if not (sync_url.startswith("libsql://") or sync_url.startswith("https://")):
+        print_warning("URL should start with libsql:// or https:// — saving anyway; verify if sync fails.")
+
+    token = prompt("  Turso auth token", password=True)
+    if token:
+        save_env_value("TURSO_AUTH_TOKEN", token)
+        print_success("  Auth token saved to .env")
+    elif not get_env_value("TURSO_AUTH_TOKEN"):
+        print_warning("  No auth token set — Turso sync will fail until TURSO_AUTH_TOKEN is in .env")
+
+    interval_raw = prompt("  Sync interval (seconds)", "60")
+    try:
+        interval = int(interval_raw)
+    except (TypeError, ValueError):
+        interval = 60
+
+    turso = db.setdefault("turso", {})
+    turso["sync_url"] = sync_url
+    turso["sync_interval"] = interval
+    db["backend"] = "turso"
+    print_success(f"Database backend: Turso ({sync_url}, every {interval}s).")
+
+    _ensure_optional_dep("database.turso", "libSQL client")
+
+    if prompt_yes_no("  Test the connection now?", default=True):
+        try:
+            from hermes_cli.doctor import _database_backend_status
+            ok, detail = _database_backend_status()
+            (print_success if ok else print_warning)(f"  {detail}")
+        except Exception as exc:  # noqa: BLE001
+            print_warning(f"  Connectivity check unavailable: {exc}")
+
+
 # =============================================================================
 # Main Wizard Orchestrator
 # =============================================================================
