@@ -161,6 +161,36 @@ from hermes_cli.cli_output import (  # noqa: E402
 from hermes_cli.secret_prompt import masked_secret_prompt  # noqa: E402
 
 
+def _ensure_optional_dep(feature: str, label: str) -> bool:
+    """Ensure an optional lazy-dep feature is installed, with manual fallback.
+
+    Returns True if deps are present (already or after a successful install),
+    False after printing the manual install command. Never raises.
+    """
+    from tools import lazy_deps
+
+    try:
+        if lazy_deps.is_available(feature):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+
+    print_info(f"Installing {label}…")
+    try:
+        lazy_deps.ensure(feature, prompt=False)
+        print_success(f"{label} installed.")
+        return True
+    except Exception as exc:  # noqa: BLE001 — best-effort install
+        print_warning(f"Could not install {label}: {exc}")
+        try:
+            cmd = lazy_deps.feature_install_command(feature)
+        except Exception:  # noqa: BLE001
+            cmd = None
+        if cmd:
+            print_info(f"  Install manually: {cmd}")
+        return False
+
+
 def is_interactive_stdin() -> bool:
     """Return True when stdin looks like a usable interactive TTY."""
     stdin = getattr(sys, "stdin", None)
@@ -2606,6 +2636,156 @@ def _offer_openclaw_migration(hermes_home: Path) -> bool:
     return True
 
 
+def setup_turso(config: dict) -> None:
+    """Configure the database backend (local SQLite vs Turso libSQL sync)."""
+    print_header("Database Backend (Turso)")
+    print_info("Choose where Hermes stores session/state data.")
+    print_info("Turso adds multi-device libSQL cloud sync; local SQLite is the default.")
+
+    current = str(cfg_get(config, "database", "backend", default="sqlite")).lower()
+    choice = prompt_choice(
+        "Select database backend:",
+        ["Local SQLite (default)", "Turso (libSQL cloud sync)"],
+        1 if current == "turso" else 0,
+    )
+
+    if choice == 0:
+        config.setdefault("database", {})["backend"] = "sqlite"
+        print_success("Database backend: local SQLite.")
+        return
+
+    existing = cfg_get(config, "database", "turso", "sync_url", default="") or ""
+    sync_url = prompt("  Turso sync URL (libsql://… or https://…)", existing)
+    if not sync_url:
+        print_warning("No sync URL entered — leaving the backend unchanged.")
+        return
+    if not (sync_url.startswith("libsql://") or sync_url.startswith("https://")):
+        print_warning("URL should start with libsql:// or https:// — saving anyway; verify if sync fails.")
+
+    db = config.setdefault("database", {})
+    token = prompt("  Turso auth token", password=True)
+    if token:
+        save_env_value("TURSO_AUTH_TOKEN", token)
+        print_success("  Auth token saved to .env")
+    elif not get_env_value("TURSO_AUTH_TOKEN"):
+        print_warning("  No auth token set — Turso sync will fail until TURSO_AUTH_TOKEN is in .env")
+
+    interval_raw = prompt("  Sync interval (seconds)", "60")
+    try:
+        interval = int(interval_raw)
+    except (TypeError, ValueError):
+        interval = 60
+
+    turso = db.setdefault("turso", {})
+    turso["sync_url"] = sync_url
+    turso["sync_interval"] = interval
+    db["backend"] = "turso"
+    print_success(f"Database backend: Turso ({sync_url}, every {interval}s).")
+
+    _ensure_optional_dep("database.turso", "libSQL client")
+
+    if prompt_yes_no("  Test the connection now?", default=True):
+        try:
+            from hermes_cli.doctor import _database_backend_status
+            ok, detail = _database_backend_status()
+            (print_success if ok else print_warning)(f"  {detail}")
+        except Exception as exc:  # noqa: BLE001
+            print_warning(f"  Connectivity check unavailable: {exc}")
+
+
+def setup_temporal(config: dict) -> None:
+    """Configure Temporal durable execution (config.yaml temporal: block)."""
+    print_header("Temporal (Durable Execution)")
+    print_info("Temporal runs durable gateway turns that survive a crash/restart.")
+    print_info("Requires a reachable Temporal server (a bundled dev server is offered).")
+
+    t = config.setdefault("temporal", {})
+    current = bool(t.get("enabled", False))
+
+    if not prompt_yes_no("Enable Temporal durable execution?", default=current):
+        t["enabled"] = False
+        print_info("Temporal disabled.")
+        return
+
+    use_dev = prompt_yes_no("  Use the bundled dev server (localhost)?", default=True)
+    t["dev_server"] = use_dev
+    t.setdefault("task_queue", "hermes")
+
+    if not use_dev:
+        t["target"] = prompt("  Temporal target (host:port)",
+                              t.get("target", "localhost:7233"))
+        t["namespace"] = prompt("  Namespace", t.get("namespace", "default"))
+        t["tls"] = prompt_yes_no("  Use TLS?", default=bool(t.get("tls", False)))
+        api_key = prompt("  Temporal Cloud API key (optional)", password=True)
+        if api_key:
+            save_env_value("TEMPORAL_API_KEY", api_key)
+            print_success("  API key saved to .env")
+
+    t["enabled"] = True
+    print_success("Temporal enabled.")
+
+    _ensure_optional_dep("tool.temporal", "Temporal SDK")
+
+
+def _enable_toolset_on_platforms(config: dict, toolset: str, platforms: list) -> None:
+    """Add ``toolset`` to config['platform_toolsets'][p] for each platform p."""
+    pt = config.setdefault("platform_toolsets", {})
+    for p in platforms:
+        existing = pt.get(p) or []
+        if toolset not in existing:
+            pt[p] = sorted(set(existing) | {toolset})
+
+
+def setup_rlm(config: dict) -> None:
+    """Enable the Fast-RLM toolset (Recursive LM over long context)."""
+    print_header("Fast-RLM (Recursive Language Model)")
+    print_info("RLM reasons over very long context by recursing through it.")
+    print_info("Opt-in toolset; needs Deno and the fast-rlm package.")
+
+    deno_path = shutil.which("deno")
+    if not deno_path:
+        print_warning("Deno not found in PATH.")
+        print_info("  Install: https://docs.deno.com/runtime/getting_started/installation/")
+        print_info("  (RLM will not run until Deno is installed; saving config anyway.)")
+    else:
+        print_info(f"Deno found: {deno_path}")
+
+    _ensure_optional_dep("tool.fast_rlm", "fast-rlm package")
+
+    scope = prompt_choice(
+        "Enable the RLM toolset on which platforms?",
+        ["CLI only (recommended)", "All configured platforms"],
+        0,
+    )
+    if scope == 0:
+        platforms = ["cli"]
+    else:
+        existing = list((config.get("platform_toolsets") or {}).keys())
+        platforms = sorted(set(existing) | {"cli"})
+
+    _enable_toolset_on_platforms(config, "rlm", platforms)
+    print_success(f"RLM toolset enabled on: {', '.join(platforms)}")
+    print_info("Toggle per-platform any time with `hermes tools`.")
+
+    if prompt_yes_no("  Configure advanced RLM settings (executor, llm_mode)?", default=False):
+        rlm_changes = {}
+        ex = prompt_choice(
+            "  Code executor:",
+            ["pyodide — sandboxed (default)", "subprocess — local, unsandboxed"],
+            0,
+        )
+        if ex == 1:
+            rlm_changes["executor"] = "subprocess"
+            rlm_changes["executor_unsandboxed_ack"] = prompt_yes_no(
+                "  Acknowledge running code unsandboxed?", default=False)
+        mode = prompt_choice(
+            "  LLM mode:", ["auto (default)", "api", "coding_agent"], 0)
+        if mode != 0:
+            rlm_changes["llm_mode"] = ["auto", "api", "coding_agent"][mode]
+        if rlm_changes:
+            config.setdefault("rlm", {}).update(rlm_changes)
+
+
 # =============================================================================
 # Main Wizard Orchestrator
 # =============================================================================
@@ -2618,6 +2798,25 @@ SETUP_SECTIONS = [
     ("tools", "Tools", setup_tools),
     ("agent", "Agent Settings", setup_agent_settings),
 ]
+
+ADVANCED_SETUP_SECTIONS = [
+    ("turso", "Turso (libSQL sync backend)", setup_turso),
+    ("temporal", "Temporal (durable execution)", setup_temporal),
+    ("rlm", "Fast-RLM (recursive LM toolset)", setup_rlm),
+]
+
+
+def _run_advanced_backends_menu(config: dict) -> None:
+    """Loop a picker over the advanced backend flows until the user is done."""
+    while True:
+        labels = [label for _key, label, _func in ADVANCED_SETUP_SECTIONS] + ["Done"]
+        idx = prompt_choice(
+            "Which backend would you like to configure?", labels, len(labels) - 1
+        )
+        if idx >= len(ADVANCED_SETUP_SECTIONS):
+            return
+        _key, _label, func = ADVANCED_SETUP_SECTIONS[idx]
+        func(config)
 
 
 def _run_portal_one_shot(config: dict) -> None:
@@ -2767,7 +2966,7 @@ def run_setup_wizard(args):
     # Check if a specific section was requested
     section = getattr(args, "section", None)
     if section:
-        for key, label, func in SETUP_SECTIONS:
+        for key, label, func in SETUP_SECTIONS + ADVANCED_SETUP_SECTIONS:
             if key == section:
                 print()
                 print(
@@ -2790,7 +2989,8 @@ def run_setup_wizard(args):
                 return
 
         print_error(f"Unknown setup section: {section}")
-        print_info(f"Available sections: {', '.join(k for k, _, _ in SETUP_SECTIONS)}")
+        all_keys = [k for k, _, _ in SETUP_SECTIONS + ADVANCED_SETUP_SECTIONS]
+        print_info(f"Available sections: {', '.join(all_keys)}")
         return
 
     # Check if this is an existing installation with a provider configured
@@ -2857,7 +3057,8 @@ def run_setup_wizard(args):
         print_info("Press Enter to keep it, or type a new value to change it.")
         print_info("")
         print_info("Tip: jump straight to a section with 'hermes setup model|terminal|")
-        print_info("     gateway|tools|agent', or fill only missing items with --quick.")
+        print_info("     gateway|tools|agent|turso|temporal|rlm', or fill only missing")
+        print_info("     items with --quick.")
         # Fall through to the "Full Setup — run all sections" block below.
         # --reconfigure is now the default on existing installs; the flag
         # is preserved for backwards compatibility but is a no-op here.
@@ -2929,6 +3130,13 @@ def run_setup_wizard(args):
     # Section 5: Tools
     if not (migration_ran and _skip_configured_section(config, "tools", "Tools")):
         setup_tools(config, first_install=not is_existing)
+
+    # Advanced / Backends — gated, default No so first-run stays clean.
+    if prompt_yes_no(
+        "Configure advanced backends (Turso sync, Temporal, Fast-RLM)?",
+        default=False,
+    ):
+        _run_advanced_backends_menu(config)
 
     # Save and show summary
     save_config(config)

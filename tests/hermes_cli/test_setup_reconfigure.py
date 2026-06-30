@@ -64,6 +64,9 @@ def _enter_existing_install_patches(stack, **extra):
         ("hermes_cli.auth.get_active_provider", {"return_value": "openrouter"}),
         ("hermes_cli.setup._print_setup_summary", {}),
         ("hermes_cli.setup._offer_openclaw_migration", {"return_value": False}),
+        # Gated advanced-backends prompt added in Task 5; default=False keeps
+        # existing-install tests clean without touching the wizard's logic.
+        ("hermes_cli.setup.prompt_yes_no", {"return_value": False}),
     ]:
         stack.enter_context(patch(target, **kwargs))
 
